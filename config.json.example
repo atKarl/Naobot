@@ -1,0 +1,14 @@
+{
+  "token": "TOKEN_ICI",
+  "clientId": "ID_DU_BOT",
+  "guildId": "ID_DU_SERVEUR",
+  "roles": {
+    "inactive": "ID_DU_ROLE",
+    "activeOfMonth": "ID_DU_ROLE"
+  },
+  "channels": {
+    "announcement": "ID_DU_SALON"
+  },
+  "ignoredChannels": ["ID1", "ID2"],
+  "cooldown": 60000
+}

@@ -1,0 +1,15 @@
+# Configuration et Secrets
+config.json
+.env
+
+# Base de données locale
+data.db
+data.db-wal
+data.db-shm
+
+# Dépendances
+node_modules/
+
+# Logs et Système
+npm-debug.log*
+.DS_Store
