@@ -14,17 +14,16 @@ module.exports = {
       option
         .setName("jours")
         .setDescription("Nombre de jours sans activité")
-        .setRequired(true)
-    ),
+        .setRequired(true),
+    )
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
 
   async execute(interaction) {
     if (
-      !interaction.member.permissions.has(
-        PermissionsBitField.Flags.Administrator
-      )
+      !interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)
     ) {
       return interaction.reply({
-        content: "⛔ Cette commande est réservée aux administrateurs.",
+        content: "⛔ Réservé aux membres du staff.",
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -51,7 +50,7 @@ module.exports = {
 
     list.forEach((u) => {
       const dateStr = new Date(u.last_active_timestamp).toLocaleDateString(
-        "fr-FR"
+        "fr-FR",
       );
       const safeUsername = u.username || "Pseudo Inconnu";
       fileContent += `[Dernière vue : ${dateStr}] ${safeUsername} (ID: ${u.user_id})\n`;

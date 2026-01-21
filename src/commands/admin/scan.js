@@ -9,25 +9,22 @@ const db = require("../../database");
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("scan")
-    .setDescription(
-      "ADMIN: Scanne l'historique des salons pour remplir la base de données"
-    )
+    .setDescription("ADMIN: Scanne l'historique des salons")
     .addIntegerOption((option) =>
       option
         .setName("jours")
-        .setDescription("Combien de jours en arrière scanner ?")
-        .setRequired(true)
-    ),
+        .setDescription("Nombre de jours à scanner")
+        .setRequired(true),
+    )
+    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
 
   async execute(interaction) {
     // Vérification des permissions
     if (
-      !interaction.member.permissions.has(
-        PermissionsBitField.Flags.Administrator
-      )
+      !interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)
     ) {
       return interaction.reply({
-        content: "⛔ Réservé aux administrateurs.",
+        content: "⛔ Réservé aux membres du staff.",
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -44,7 +41,7 @@ module.exports = {
 
     await interaction.deferReply();
     await interaction.editReply(
-      `🔄 **Deep Scan initialisé** (${days} jours)...\nRécupération de la liste des salons...`
+      `🔄 **Deep Scan initialisé** (${days} jours)...\nRécupération de la liste des salons...`,
     );
 
     // Récupération de tous les types de salons textuels pertinents
@@ -57,11 +54,11 @@ module.exports = {
           c.type === ChannelType.GuildAnnouncement ||
           c.type === ChannelType.PublicThread ||
           c.type === ChannelType.PrivateThread ||
-          c.type === ChannelType.GuildVoice
+          c.type === ChannelType.GuildVoice,
       );
     } catch (e) {
       return interaction.editReply(
-        "❌ Erreur lors de la récupération des salons."
+        "❌ Erreur lors de la récupération des salons.",
       );
     }
 
@@ -69,7 +66,7 @@ module.exports = {
     console.log(`[SCAN] Démarrage sur ${allChannels.size} canaux.`);
 
     await interaction.editReply(
-      `🔄 **Deep Scan en cours**\n📂 ${allChannels.size} salons à analyser sur ${days} jours.`
+      `🔄 **Deep Scan en cours**\n📂 ${allChannels.size} salons à analyser sur ${days} jours.`,
     );
 
     let totalMessages = 0;
@@ -139,13 +136,13 @@ module.exports = {
       // Mise à jour du statut visuel tous les 5 salons
       if (channelsProcessed % 5 === 0) {
         await interaction.editReply(
-          `🔄 **Scan en cours...**\n📊 Progression : ${channelsProcessed}/${allChannels.size} salons.\n📨 Messages indexés : ${totalMessages}`
+          `🔄 **Scan en cours...**\n📊 Progression : ${channelsProcessed}/${allChannels.size} salons.\n📨 Messages indexés : ${totalMessages}`,
         );
       }
     }
 
     await interaction.editReply(
-      `✅ **Deep Scan Terminé !**\n\n📅 Période : ${days} jours\n📨 Total indexé : ${totalMessages} messages\n📚 Salons scannés : ${channelsProcessed}`
+      `✅ **Deep Scan Terminé !**\n\n📅 Période : ${days} jours\n📨 Total indexé : ${totalMessages} messages\n📚 Salons scannés : ${channelsProcessed}`,
     );
   },
 };
