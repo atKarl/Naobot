@@ -195,6 +195,33 @@ function pruneLogs(daysRetention) {
     .changes;
 }
 
+// Supprime toutes les données d'un utilisateur si il quitte le serveur (RGPD)
+function removeUserData(userId) {
+    const deleteLogs = db.prepare('DELETE FROM logs WHERE user_id = ?');
+    const deleteUser = db.prepare('DELETE FROM users WHERE user_id = ?');
+
+    const transaction = db.transaction(() => {
+        const logsResult = deleteLogs.run(userId);
+        const userResult = deleteUser.run(userId);
+        return { logs: logsResult.changes, user: userResult.changes };
+    });
+
+    try {
+        const result = transaction();
+        console.log(`[GDPR] Suppression user ${userId} : ${result.user} user, ${result.logs} logs.`);
+        
+        // Nettoyage du cache RAM si présent
+        if (cooldownCache.has(userId)) {
+            cooldownCache.delete(userId);
+        }
+        
+        return result;
+    } catch (error) {
+        console.error(`[DB Error] Échec suppression ${userId} :`, error);
+        return null;
+    }
+}
+
 module.exports = {
   initDb,
   logActivity,
@@ -206,4 +233,5 @@ module.exports = {
   getInactiveUsersList,
   getTopUserByPeriod,
   pruneLogs,
+  removeUserData,
 };
