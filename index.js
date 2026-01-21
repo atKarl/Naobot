@@ -8,6 +8,7 @@ const {
   EmbedBuilder,
   AttachmentBuilder,
   ActivityType,
+  MessageFlags,
 } = require("discord.js");
 const cron = require("node-cron");
 const config = require("./config.json");
@@ -52,7 +53,7 @@ client.once(Events.ClientReady, (c) => {
     activities: [
       {
         name: "/help pour avoir de l'aide",
-        type: ActivityType.Watching, // Affichera "Regarde /help pour avoir de l'aide"
+        type: ActivityType.Watching, 
       },
     ],
     status: "online",
@@ -73,7 +74,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     console.error(`Erreur Commande ${interaction.commandName}:`, error);
     const errPayload = {
       content: "Une erreur interne est survenue.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     };
     if (interaction.replied || interaction.deferred)
       await interaction.followUp(errPayload);
