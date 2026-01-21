@@ -7,6 +7,7 @@ const {
   Collection,
   EmbedBuilder,
   AttachmentBuilder,
+  ActivityType,
 } = require("discord.js");
 const cron = require("node-cron");
 const config = require("./config.json");
@@ -47,6 +48,15 @@ for (const folder of commandFolders) {
 
 client.once(Events.ClientReady, (c) => {
   console.log(`✅ Prêt ! Connecté en tant que ${c.user.tag}`);
+  c.user.setPresence({
+    activities: [
+      {
+        name: "/help pour avoir de l'aide",
+        type: ActivityType.Watching, // Affichera "Regarde /help pour avoir de l'aide"
+      },
+    ],
+    status: "online",
+  });
   console.log(`⏱️ Cooldown anti-spam : ${config.cooldown / 1000}s`);
   initCronJobs();
 });
