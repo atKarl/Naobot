@@ -37,7 +37,7 @@ function initDb() {
   } catch (error) {
     try {
       db.exec(
-        "ALTER TABLE users ADD COLUMN tracking_enabled INTEGER DEFAULT 1"
+        "ALTER TABLE users ADD COLUMN tracking_enabled INTEGER DEFAULT 1",
       );
     } catch (e) {
       console.error("Erreur lors de la migration DB:", e);
@@ -78,12 +78,12 @@ function logActivity(userId, username, type, cooldownMs = 60000) {
             ON CONFLICT(user_id) DO UPDATE SET
                 last_active_timestamp = excluded.last_active_timestamp,
                 username = excluded.username
-        `
+        `,
     ).run(userId, username, now);
 
     // Enregistrement de l'événement
     db.prepare(
-      "INSERT INTO logs (user_id, type, timestamp) VALUES (?, ?, ?)"
+      "INSERT INTO logs (user_id, type, timestamp) VALUES (?, ?, ?)",
     ).run(userId, type, now);
   });
 
@@ -125,7 +125,7 @@ function setTrackingStatus(userId, enabled) {
         INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
         VALUES (?, 'Inconnu', ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET tracking_enabled = ?
-    `
+    `,
   ).run(userId, Date.now(), status, status);
 }
 
@@ -135,7 +135,7 @@ function getUserStats(userId) {
     .get(userId);
   const user = db
     .prepare(
-      "SELECT last_active_timestamp, tracking_enabled FROM users WHERE user_id = ?"
+      "SELECT last_active_timestamp, tracking_enabled FROM users WHERE user_id = ?",
     )
     .get(userId);
   return {
@@ -153,7 +153,7 @@ function getTopUsers(limit = 10) {
         FROM users u JOIN logs l ON u.user_id = l.user_id
         WHERE u.tracking_enabled = 1
         GROUP BY u.user_id ORDER BY score DESC LIMIT ?
-    `
+    `,
     )
     .all(limit);
 }
@@ -162,7 +162,7 @@ function getInactiveUsersList(days) {
   const thresholdDate = Date.now() - days * 24 * 60 * 60 * 1000;
   return db
     .prepare(
-      `SELECT user_id, username, last_active_timestamp FROM users WHERE last_active_timestamp < ? ORDER BY last_active_timestamp ASC`
+      `SELECT user_id, username, last_active_timestamp FROM users WHERE last_active_timestamp < ? ORDER BY last_active_timestamp ASC`,
     )
     .all(thresholdDate);
 }
@@ -171,7 +171,7 @@ function getInactiveUsers(daysThreshold) {
   const thresholdDate = Date.now() - daysThreshold * 24 * 60 * 60 * 1000;
   return db
     .prepare(
-      `SELECT user_id, last_active_timestamp FROM users WHERE last_active_timestamp < ?`
+      `SELECT user_id, last_active_timestamp FROM users WHERE last_active_timestamp < ?`,
     )
     .all(thresholdDate);
 }
@@ -183,7 +183,7 @@ function getTopUserByPeriod(startTs, endTs) {
         SELECT u.user_id, COUNT(l.id) as score FROM logs l JOIN users u ON l.user_id = u.user_id
         WHERE l.timestamp >= ? AND l.timestamp <= ? AND u.tracking_enabled = 1
         GROUP BY u.user_id ORDER BY score DESC LIMIT 1
-    `
+    `,
     )
     .get(startTs, endTs);
 }
@@ -197,29 +197,31 @@ function pruneLogs(daysRetention) {
 
 // Supprime toutes les données d'un utilisateur si il quitte le serveur (RGPD)
 function removeUserData(userId) {
-    const deleteLogs = db.prepare('DELETE FROM logs WHERE user_id = ?');
-    const deleteUser = db.prepare('DELETE FROM users WHERE user_id = ?');
+  const deleteLogs = db.prepare("DELETE FROM logs WHERE user_id = ?");
+  const deleteUser = db.prepare("DELETE FROM users WHERE user_id = ?");
 
-    const transaction = db.transaction(() => {
-        const logsResult = deleteLogs.run(userId);
-        const userResult = deleteUser.run(userId);
-        return { logs: logsResult.changes, user: userResult.changes };
-    });
+  const transaction = db.transaction(() => {
+    const logsResult = deleteLogs.run(userId);
+    const userResult = deleteUser.run(userId);
+    return { logs: logsResult.changes, user: userResult.changes };
+  });
 
-    try {
-        const result = transaction();
-        console.log(`[GDPR] Suppression user ${userId} : ${result.user} user, ${result.logs} logs.`);
-        
-        // Nettoyage du cache RAM si présent
-        if (cooldownCache.has(userId)) {
-            cooldownCache.delete(userId);
-        }
-        
-        return result;
-    } catch (error) {
-        console.error(`[DB Error] Échec suppression ${userId} :`, error);
-        return null;
+  try {
+    const result = transaction();
+    console.log(
+      `[GDPR] Suppression user ${userId} : ${result.user} user, ${result.logs} logs.`,
+    );
+
+    // Nettoyage du cache RAM si présent
+    if (cooldownCache.has(userId)) {
+      cooldownCache.delete(userId);
     }
+
+    return result;
+  } catch (error) {
+    console.error(`[DB Error] Échec suppression ${userId} :`, error);
+    return null;
+  }
 }
 
 module.exports = {

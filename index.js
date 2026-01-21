@@ -6,6 +6,7 @@ const {
   Events,
   Collection,
   EmbedBuilder,
+  AttachmentBuilder,
 } = require("discord.js");
 const cron = require("node-cron");
 const config = require("./config.json");
@@ -88,7 +89,7 @@ client.on(Events.MessageCreate, async (message) => {
     message.author.id,
     message.author.username,
     type,
-    config.cooldown
+    config.cooldown,
   );
 });
 
@@ -111,6 +112,14 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
   db.logActivity(user.id, user.username, "reaction", config.cooldown);
 });
 
+// Gestion des Départs (GDPR - Droit à l'oubli)
+client.on(Events.GuildMemberRemove, async (member) => {
+  if (member.user.bot) return;
+
+  // Suppression immédiate de la BDD
+  db.removeUserData(member.id);
+});
+
 // --- TÂCHES AUTOMATIQUES (CRON) ---
 
 function initCronJobs() {
@@ -122,6 +131,7 @@ function initCronJobs() {
     const guild = client.guilds.cache.get(config.guildId);
     if (!guild) return;
 
+    // Récupère les utilisateurs inactifs depuis plus de 90 jours
     const inactiveUsers = db.getInactiveUsers(90);
     if (inactiveUsers.length === 0) return;
 
@@ -133,26 +143,28 @@ function initCronJobs() {
       try {
         let member = guild.members.cache.get(userData.user_id);
 
+        // Si pas en cache, on fetch
         if (!member) {
           try {
             member = await guild.members.fetch(userData.user_id);
           } catch (e) {
-            // Le membre a quitté le serveur
+            // Le membre a quitté le serveur, on passe au suivant
             continue;
           }
         }
 
+        // Si a déjà le rôle, on passe
         if (member.roles.cache.has(config.roles.inactive)) continue;
 
         await member.roles.add(config.roles.inactive);
         console.log(`[INACTIVITÉ] +Rôle pour ${member.user.tag}`);
 
-        // Pause pour éviter les Rate Limits de Discord
+        // Pause de 1s pour éviter les Rate Limits de Discord
         await sleep(1000);
       } catch (err) {
         console.error(
           `Erreur traitement user ${userData.user_id}:`,
-          err.message
+          err.message,
         );
       }
     }
@@ -170,7 +182,7 @@ function initCronJobs() {
     const startOfLastMonth = new Date(
       now.getFullYear(),
       now.getMonth() - 1,
-      1
+      1,
     ).getTime();
     const endOfLastMonth = new Date(
       now.getFullYear(),
@@ -178,11 +190,11 @@ function initCronJobs() {
       0,
       23,
       59,
-      59
+      59,
     ).getTime();
 
     const winnerData = db.getTopUserByPeriod(startOfLastMonth, endOfLastMonth);
-    if (!winnerData) return console.log("Aucune activité.");
+    if (!winnerData) return console.log("Aucune activité ce mois-ci.");
 
     try {
       // Retrait du rôle à l'ancien gagnant
@@ -203,27 +215,101 @@ function initCronJobs() {
           const embed = new EmbedBuilder()
             .setColor(0xe91e63)
             .setTitle("🎉 Membre du Mois !")
-            .setDescription(`Bravo <@${winnerData.user_id}> !`)
+            .setDescription(
+              `Bravo <@${winnerData.user_id}> qui a été le plus actif le mois dernier !`,
+            )
             .addFields({
               name: "Score",
-              value: `${winnerData.score} pts`,
+              value: `${winnerData.score} points`,
               inline: true,
             })
             .setTimestamp();
           await channel.send({ embeds: [embed] });
         }
       } catch (e) {
-        console.log("Gagnant parti du serveur.");
+        console.log("Le gagnant semble avoir quitté le serveur.");
       }
     } catch (err) {
       console.error(err);
     }
   });
 
-  // Tâche 3 : Nettoyage BDD (Tous les dimanches à 4h00)
-  cron.schedule("0 4 * * 0", () => {
+  // Tâche 3: Maintenance Hebdomadaire (Dimanche à 04h00)
+  // Nettoyage logs + Sauvegarde DB + Rotation fichiers
+  cron.schedule("0 4 * * 0", async () => {
+    console.log("[MAINTENANCE] 🔄 Démarrage de la procédure...");
+
+    // CONFIGURATION (À adapter selon tes besoins)
+    const BACKUP_DIR = path.join(__dirname, "backups");
+    const RETENTION_LIMIT = 5; // Nombre de backups conservés localement
+    const BACKUP_CHANNEL_ID = ""; // Salon Discord pour les backups
+
+    // 1. Nettoyage de la BDD (Suppression logs > 365 jours)
     const deleted = db.pruneLogs(365);
-    console.log(`[NETTOYAGE] ${deleted} logs supprimés.`);
+    console.log(`[NETTOYAGE] ${deleted} anciens logs supprimés.`);
+
+    // 2. Préparation des chemins
+    const dbPath = path.join(__dirname, "data.db");
+    const timestamp = Date.now();
+    const fileName = `backup-${timestamp}.db`;
+    const backupPath = path.join(BACKUP_DIR, fileName);
+
+    // Création du dossier backups s'il n'existe pas
+    if (!fs.existsSync(BACKUP_DIR)) {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    }
+
+    try {
+      // --- ÉTAPE A : COPIE DU FICHIER ---
+      await fs.promises.copyFile(dbPath, backupPath);
+      console.log(`[BACKUP] ✅ Copie locale réussie : ${fileName}`);
+
+      // --- ÉTAPE B : ENVOI SUR DISCORD ---
+      const channel = await client.channels
+        .fetch(BACKUP_CHANNEL_ID)
+        .catch(() => null);
+
+      if (channel) {
+        const file = new AttachmentBuilder(backupPath, { name: fileName });
+        await channel.send({
+          content: `💾 **Sauvegarde Hebdomadaire**\n📅 <t:${Math.floor(timestamp / 1000)}:f>\n🧹 Logs purgés : ${deleted}`,
+          files: [file],
+        });
+        console.log("[BACKUP] 📤 Sauvegarde envoyée sur Discord.");
+      } else {
+        console.warn(
+          "[BACKUP] ⚠️ Salon de backup introuvable ou inaccessible (Vérifie l'ID).",
+        );
+      }
+
+      // --- ÉTAPE C : ROTATION (Suppression des vieux backups) ---
+      const files = await fs.promises.readdir(BACKUP_DIR);
+
+      // On récupère les stats (date de modif) pour chaque fichier .db
+      const fileStats = await Promise.all(
+        files
+          .filter((f) => f.endsWith(".db"))
+          .map(async (f) => {
+            const stats = await fs.promises.stat(path.join(BACKUP_DIR, f));
+            return { name: f, time: stats.mtime.getTime() };
+          }),
+      );
+
+      fileStats.sort((a, b) => b.time - a.time);
+
+      // Si on dépasse la limite, on supprime les vieux fichiers
+      if (fileStats.length > RETENTION_LIMIT) {
+        const filesToDelete = fileStats.slice(RETENTION_LIMIT);
+        for (const file of filesToDelete) {
+          await fs.promises.unlink(path.join(BACKUP_DIR, file.name));
+          console.log(
+            `[BACKUP] Suppression ancienne sauvegarde : ${file.name}`,
+          );
+        }
+      }
+    } catch (error) {
+      console.error("[MAINTENANCE] Erreur critique :", error);
+    }
   });
 }
 
