@@ -4,6 +4,7 @@ config.json
 
 # Base de données locale
 data.db*
+backups/
 
 # Dépendances
 node_modules/

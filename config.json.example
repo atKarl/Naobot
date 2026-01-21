@@ -7,7 +7,8 @@
     "activeOfMonth": "ID_DU_ROLE"
   },
   "channels": {
-    "announcement": "ID_DU_SALON"
+    "announcement": "ID_DU_SALON",
+    "backups": "ID_DU_SALON"
   },
   "ignoredChannels": ["ID1", "ID2"],
   "cooldown": 60000

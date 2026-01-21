@@ -239,10 +239,10 @@ function initCronJobs() {
   cron.schedule("0 4 * * 0", async () => {
     console.log("[MAINTENANCE] 🔄 Démarrage de la procédure...");
 
-    // CONFIGURATION (À adapter selon tes besoins)
+    // Configuration des Backups
     const BACKUP_DIR = path.join(__dirname, "backups");
     const RETENTION_LIMIT = 5; // Nombre de backups conservés localement
-    const BACKUP_CHANNEL_ID = ""; // Salon Discord pour les backups
+    const BACKUP_CHANNEL_ID = config.channels.backups;
 
     // 1. Nettoyage de la BDD (Suppression logs > 365 jours)
     const deleted = db.pruneLogs(365);
@@ -265,21 +265,27 @@ function initCronJobs() {
       console.log(`[BACKUP] ✅ Copie locale réussie : ${fileName}`);
 
       // --- ÉTAPE B : ENVOI SUR DISCORD ---
-      const channel = await client.channels
-        .fetch(BACKUP_CHANNEL_ID)
-        .catch(() => null);
-
-      if (channel) {
-        const file = new AttachmentBuilder(backupPath, { name: fileName });
-        await channel.send({
-          content: `💾 **Sauvegarde Hebdomadaire**\n📅 <t:${Math.floor(timestamp / 1000)}:f>\n🧹 Logs purgés : ${deleted}`,
-          files: [file],
-        });
-        console.log("[BACKUP] 📤 Sauvegarde envoyée sur Discord.");
-      } else {
+      if (!BACKUP_CHANNEL_ID || BACKUP_CHANNEL_ID === "ID_DU_SALON") {
         console.warn(
-          "[BACKUP] ⚠️ Salon de backup introuvable ou inaccessible (Vérifie l'ID).",
+          "[BACKUP] ⚠️ Envoi annulé : Aucun ID de salon défini dans config.json.",
         );
+      } else {
+        const channel = await client.channels
+          .fetch(BACKUP_CHANNEL_ID)
+          .catch(() => null);
+
+        if (channel) {
+          const file = new AttachmentBuilder(backupPath, { name: fileName });
+          await channel.send({
+            content: `💾 **Sauvegarde Hebdomadaire**\n📅 <t:${Math.floor(timestamp / 1000)}:f>\n🧹 Logs purgés : ${deleted}`,
+            files: [file],
+          });
+          console.log("[BACKUP] 📤 Sauvegarde envoyée sur Discord.");
+        } else {
+          console.warn(
+            "[BACKUP] ⚠️ Salon de backup introuvable ou inaccessible (Vérifie l'ID).",
+          );
+        }
       }
 
       // --- ÉTAPE C : ROTATION (Suppression des vieux backups) ---
