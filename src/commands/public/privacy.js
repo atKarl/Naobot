@@ -24,31 +24,25 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
     const userId = interaction.user.id;
 
-    // On vérifie que la fonction existe (sécurité si database.js n'est pas à jour)
     if (typeof db.setTrackingStatus !== "function") {
       return interaction.reply({
-        content:
-          "⚠️ Erreur technique : Fonction `setTrackingStatus` manquante.",
+        content: "⚠️ Erreur technique : Fonction database manquante.",
         flags: MessageFlags.Ephemeral,
       });
     }
 
     if (sub === "optout") {
-      // Désactivation
       db.setTrackingStatus(userId, false);
-
       await interaction.reply({
         content:
-          "✅ **Préférence enregistrée : Opt-Out.**\n\nVous ne serez plus comptabilisé dans les statistiques ni dans le classement.\n*Note : Vos données passées restent anonymement en base pour l'historique global, mais n'évolueront plus.*",
+          "✅ **Préférence enregistrée : Opt-Out.**\n\nVous ne serez plus comptabilisé dans les statistiques ni dans le classement.",
         flags: MessageFlags.Ephemeral,
       });
     } else if (sub === "optin") {
-      // Activation
       db.setTrackingStatus(userId, true);
-
       await interaction.reply({
         content:
-          "✅ **Préférence enregistrée : Opt-In.**\n\nLe bot recommence à compter votre activité à partir de maintenant. Bon retour dans le classement !",
+          "✅ **Préférence enregistrée : Opt-In.**\n\nLe bot recommence à compter votre activité à partir de maintenant.",
         flags: MessageFlags.Ephemeral,
       });
     }

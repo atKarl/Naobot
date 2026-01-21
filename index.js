@@ -23,7 +23,7 @@ const client = new Client({
   ],
 });
 
-// --- COMMAND HANDLER ---
+// --- CHARGEMENT DES COMMANDES ---
 client.commands = new Collection();
 const foldersPath = path.join(__dirname, "src/commands");
 const commandFolders = fs.readdirSync(foldersPath);
@@ -42,7 +42,7 @@ for (const folder of commandFolders) {
   }
 }
 
-// --- EVENTS ---
+// --- ÉVÉNEMENTS DISCORD ---
 
 client.once(Events.ClientReady, (c) => {
   console.log(`✅ Prêt ! Connecté en tant que ${c.user.tag}`);
@@ -50,6 +50,7 @@ client.once(Events.ClientReady, (c) => {
   initCronJobs();
 });
 
+// Gestion des intéractions (Commandes Slash)
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const command = client.commands.get(interaction.commandName);
@@ -59,7 +60,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     await command.execute(interaction);
   } catch (error) {
     console.error(`Erreur Commande ${interaction.commandName}:`, error);
-    // Sécurité pour ne pas laisser l'interaction "pendre"
     const errPayload = {
       content: "Une erreur interne est survenue.",
       ephemeral: true,
@@ -70,8 +70,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+// Tracking des Messages
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
+  // Vérification des salons ignorés
   if (
     config.ignoredChannels &&
     config.ignoredChannels.includes(message.channel.id)
@@ -80,6 +82,8 @@ client.on(Events.MessageCreate, async (message) => {
 
   let type = "message";
   if (message.attachments.size > 0) type = "file";
+
+  // Log avec gestion du cooldown
   db.logActivity(
     message.author.id,
     message.author.username,
@@ -88,6 +92,7 @@ client.on(Events.MessageCreate, async (message) => {
   );
 });
 
+// Tracking des Réactions
 client.on(Events.MessageReactionAdd, async (reaction, user) => {
   if (user.bot) return;
   if (reaction.partial)
@@ -96,6 +101,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
     } catch (e) {
       return;
     }
+
   if (
     config.ignoredChannels &&
     config.ignoredChannels.includes(reaction.message.channel.id)
@@ -105,12 +111,12 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
   db.logActivity(user.id, user.username, "reaction", config.cooldown);
 });
 
-// --- CRONS OPTIMISÉS ---
+// --- TÂCHES AUTOMATIQUES (CRON) ---
 
 function initCronJobs() {
   console.log("📅 Tâches Cron initialisées.");
 
-  // Tâche 1 : Inactivité (Minuit) - AVEC PAUSE RATE LIMIT
+  // Tâche 1 : Vérification d'Inactivité (Minuit)
   cron.schedule("0 0 * * *", async () => {
     console.log("[CRON] Vérification d'inactivité...");
     const guild = client.guilds.cache.get(config.guildId);
@@ -121,32 +127,27 @@ function initCronJobs() {
 
     console.log(`[CRON] ${inactiveUsers.length} utilisateurs à traiter.`);
 
-    // Fonction utilitaire de pause (500ms)
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     for (const userData of inactiveUsers) {
       try {
-        // 1. On cherche d'abord dans le cache (Instantané)
         let member = guild.members.cache.get(userData.user_id);
 
-        // 2. Si pas en cache, on fetch via API
         if (!member) {
           try {
             member = await guild.members.fetch(userData.user_id);
           } catch (e) {
-            // Membre parti du serveur, on ignore
+            // Le membre a quitté le serveur
             continue;
           }
         }
 
         if (member.roles.cache.has(config.roles.inactive)) continue;
 
-        // 3. Action
         await member.roles.add(config.roles.inactive);
         console.log(`[INACTIVITÉ] +Rôle pour ${member.user.tag}`);
 
-        // 4. PAUSE DE SÉCURITÉ (Rate Limit protection)
-        // On attend 1 seconde entre chaque requête d'ajout de rôle
+        // Pause pour éviter les Rate Limits de Discord
         await sleep(1000);
       } catch (err) {
         console.error(
@@ -158,12 +159,13 @@ function initCronJobs() {
     console.log("[CRON] Traitement inactivité terminé.");
   });
 
-  // Tâche 2 : Membre du Mois
+  // Tâche 2 : Membre du Mois (1er du mois à minuit)
   cron.schedule("0 0 1 * *", async () => {
     console.log("[CRON] Calcul Membre du Mois...");
     const guild = client.guilds.cache.get(config.guildId);
     if (!guild) return;
 
+    // Calcul de la période (Mois précédent complet)
     const now = new Date();
     const startOfLastMonth = new Date(
       now.getFullYear(),
@@ -183,16 +185,15 @@ function initCronJobs() {
     if (!winnerData) return console.log("Aucune activité.");
 
     try {
+      // Retrait du rôle à l'ancien gagnant
       const role = await guild.roles.fetch(config.roles.activeOfMonth);
-      // On s'assure de charger tous les membres du rôle avant de boucler
       if (role) {
-        // Force fetch des membres du rôle si nécessaire (pour les gros serveurs)
-        // await guild.members.fetch(); // Peut être lourd, on fait confiance au cache ici
         for (const [id, member] of role.members) {
           await member.roles.remove(role);
         }
       }
 
+      // Ajout du rôle au nouveau gagnant
       try {
         const winnerMember = await guild.members.fetch(winnerData.user_id);
         await winnerMember.roles.add(config.roles.activeOfMonth);
@@ -219,7 +220,7 @@ function initCronJobs() {
     }
   });
 
-  // Tâche 3 : Nettoyage BDD
+  // Tâche 3 : Nettoyage BDD (Tous les dimanches à 4h00)
   cron.schedule("0 4 * * 0", () => {
     const deleted = db.pruneLogs(365);
     console.log(`[NETTOYAGE] ${deleted} logs supprimés.`);

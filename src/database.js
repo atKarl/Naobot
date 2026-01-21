@@ -1,71 +1,76 @@
 const Database = require("better-sqlite3");
 const path = require("path");
 
-// Connexion à la base de données
+// Connexion à la base de données (fichier data.db à la racine)
 const db = new Database(path.join(__dirname, "../data.db"), { verbose: null });
+// Mode WAL pour de meilleures performances en écriture simultanée
 db.pragma("journal_mode = WAL");
 
-// --- CACHE MÉMOIRE ANTI-SPAM ---
-// Stocke { userId: timestamp } pour éviter de lire la DB à chaque message
+// Cache en mémoire { userId: timestamp }
+// Permet de vérifier le délai anti-spam sans lire le disque dur à chaque message
 const cooldownCache = new Map();
 
 function initDb() {
+  // Initialisation des tables
   db.exec(`
         CREATE TABLE IF NOT EXISTS users (
             user_id TEXT PRIMARY KEY,
             username TEXT,
             last_active_timestamp INTEGER,
-            tracking_enabled INTEGER DEFAULT 1
+            tracking_enabled INTEGER DEFAULT 1 -- 1 = Suivi activé (RGPD), 0 = Désactivé
         );
         CREATE TABLE IF NOT EXISTS logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT,
-            type TEXT, 
+            type TEXT, -- 'message', 'reaction', 'file'
             timestamp INTEGER,
             FOREIGN KEY(user_id) REFERENCES users(user_id)
         );
+        -- Index pour accélérer les recherches et classements
         CREATE INDEX IF NOT EXISTS idx_logs_user ON logs(user_id);
         CREATE INDEX IF NOT EXISTS idx_logs_time ON logs(timestamp);
     `);
 
-  // Migration auto RGPD
+  // Vérification et ajout de la colonne tracking_enabled si elle manque (Migration)
   try {
     db.prepare("SELECT tracking_enabled FROM users LIMIT 1").get();
   } catch (error) {
-    console.log("[MIGRATION] Ajout de la colonne tracking_enabled...");
     try {
       db.exec(
         "ALTER TABLE users ADD COLUMN tracking_enabled INTEGER DEFAULT 1"
       );
-    } catch (e) {}
+    } catch (e) {
+      console.error("Erreur lors de la migration DB:", e);
+    }
   }
 
-  console.log("Base de données chargée (Mode WAL + Cache Mem).");
+  console.log("Base de données chargée.");
 }
 
 /**
- * LOG ACTIVITY OPTIMISÉ (Cache RAM)
+ * Enregistre une activité utilisateur
+ * Utilise un cache mémoire pour réduire les I/O disque
  */
 function logActivity(userId, username, type, cooldownMs = 60000) {
   const now = Date.now();
 
-  // 1. VÉRIFICATION CACHE RAM (Ultra rapide, 0 accès disque)
+  // 1. Vérification rapide via le Cache RAM
   if (cooldownCache.has(userId)) {
     const lastTime = cooldownCache.get(userId);
     if (now - lastTime < cooldownMs) {
-      return; // Spam détecté en RAM -> On arrête tout de suite
+      return; // Délai non écoulé, on ignore
     }
   }
 
-  // 2. CHECK RGPD (Accès DB nécessaire ici)
+  // 2. Vérification du statut RGPD (Lecture DB nécessaire)
   const userCheck = db
     .prepare("SELECT tracking_enabled FROM users WHERE user_id = ?")
     .get(userId);
   if (userCheck && userCheck.tracking_enabled === 0) return;
 
-  // 3. ÉCRITURE DB (Transaction atomique)
+  // 3. Écriture en base via une Transaction (Atomique)
   const logTransaction = db.transaction(() => {
-    // Upsert User
+    // Création ou mise à jour de l'utilisateur
     db.prepare(
       `
             INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
@@ -76,7 +81,7 @@ function logActivity(userId, username, type, cooldownMs = 60000) {
         `
     ).run(userId, username, now);
 
-    // Insert Log
+    // Enregistrement de l'événement
     db.prepare(
       "INSERT INTO logs (user_id, type, timestamp) VALUES (?, ?, ?)"
     ).run(userId, type, now);
@@ -85,20 +90,20 @@ function logActivity(userId, username, type, cooldownMs = 60000) {
   try {
     logTransaction();
 
-    // 4. MISE À JOUR CACHE RAM
+    // 4. Mise à jour du cache RAM
     cooldownCache.set(userId, now);
 
-    // Nettoyage automatique du cache après le temps de cooldown (pour libérer la RAM)
+    // Nettoyage automatique de la clé cache après expiration du délai
     setTimeout(() => cooldownCache.delete(userId), cooldownMs);
   } catch (err) {
     console.error("Erreur écriture DB:", err);
   }
 }
 
-// ... Le reste des fonctions (updateBatch, stats, etc.) reste identique ...
-// Pour gagner de la place ici, je remets juste les exports et les fonctions critiques
-// Copiez-collez vos fonctions existantes (updateBatch, getInactiveUsersList, etc.) ci-dessous.
-
+/**
+ * Transaction par lot pour le scan d'historique
+ * Écrit plusieurs entrées en une seule opération pour la performance
+ */
 const updateBatch = db.transaction((messages) => {
   const stmt = db.prepare(`
         INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
@@ -112,6 +117,7 @@ const updateBatch = db.transaction((messages) => {
   }
 });
 
+// Active ou désactive le suivi pour un utilisateur (RGPD)
 function setTrackingStatus(userId, enabled) {
   const status = enabled ? 1 : 0;
   db.prepare(
@@ -182,6 +188,7 @@ function getTopUserByPeriod(startTs, endTs) {
     .get(startTs, endTs);
 }
 
+// Supprime les logs plus vieux que X jours pour limiter la taille de la DB
 function pruneLogs(daysRetention) {
   const limitTimestamp = Date.now() - daysRetention * 24 * 60 * 60 * 1000;
   return db.prepare("DELETE FROM logs WHERE timestamp < ?").run(limitTimestamp)

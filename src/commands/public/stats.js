@@ -29,8 +29,7 @@ module.exports = {
       .setColor(0x0099ff)
       .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }));
 
-    // CAS 1 : L'utilisateur cible est en OPT-OUT et ce n'est pas moi
-    // On protège sa vie privée, on ne montre rien.
+    // Si l'utilisateur cible a désactivé le suivi (Opt-out)
     if (isOptOut && !isSelf) {
       embed
         .setTitle(`Statistiques de ${targetUser.username}`)
@@ -42,14 +41,11 @@ module.exports = {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    // CAS 2 : Affichage normal (Moi-même ou utilisateur Opt-in)
-
-    // Formatage Discord dynamique (s'adapte au fuseau horaire du lecteur)
-    // <t:timestamp:f> donne "20 janvier 2026 15:30"
-    // <t:timestamp:R> donne "il y a 2 heures"
+    // Utilisation des Timestamps dynamiques Discord
+    // <t:X:f> = Date complète, <t:X:R> = Temps relatif ("il y a X jours")
     let lastActiveField = "Jamais";
     if (stats.lastActive) {
-      const ts = Math.floor(stats.lastActive / 1000); // Discord veut des secondes
+      const ts = Math.floor(stats.lastActive / 1000);
       lastActiveField = `<t:${ts}:f> (<t:${ts}:R>)`;
     }
 
@@ -64,15 +60,12 @@ module.exports = {
         { name: "🕒 Dernière vue", value: lastActiveField, inline: true }
       );
 
-    // Si c'est moi et que je suis opt-out, on me prévient
     if (isOptOut && isSelf) {
       embed.setFooter({
         text: "⚠️ Vous êtes en mode 'Opt-out'. Vous seul voyez ceci.",
       });
     }
 
-    // Si c'est pour moi-même, je peux le garder privé (ephemeral)
-    // Sinon c'est public
     await interaction.reply({ embeds: [embed], ephemeral: isOptOut && isSelf });
   },
 };

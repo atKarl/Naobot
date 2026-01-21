@@ -20,7 +20,7 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    // 1. Sécurité
+    // Vérification des permissions
     if (
       !interaction.member.permissions.has(
         PermissionsBitField.Flags.Administrator
@@ -34,7 +34,7 @@ module.exports = {
 
     if (typeof db.updateBatch !== "function") {
       return interaction.reply({
-        content: "⛔ Erreur: `updateBatch` introuvable dans database.js.",
+        content: "⛔ Erreur critique : fonction `updateBatch` manquante.",
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -47,23 +47,21 @@ module.exports = {
       `🔄 **Deep Scan initialisé** (${days} jours)...\nRécupération de la liste des salons...`
     );
 
-    // 2. Récupération ROBUSTE des salons (API > Cache)
+    // Récupération de tous les types de salons textuels pertinents
     let allChannels;
     try {
       const channelsCollection = await interaction.guild.channels.fetch();
-
-      // Filtrage étendu (Text, Thread, Announcement, VoiceText)
       allChannels = channelsCollection.filter(
         (c) =>
           c.type === ChannelType.GuildText ||
-          c.type === ChannelType.GuildAnnouncement || // <-- AJOUTÉ
+          c.type === ChannelType.GuildAnnouncement ||
           c.type === ChannelType.PublicThread ||
           c.type === ChannelType.PrivateThread ||
-          c.type === ChannelType.GuildVoice // <-- AJOUTÉ (Text in Voice)
+          c.type === ChannelType.GuildVoice
       );
     } catch (e) {
       return interaction.editReply(
-        "❌ Erreur lors de la récupération des salons via l'API."
+        "❌ Erreur lors de la récupération des salons."
       );
     }
 
@@ -77,13 +75,12 @@ module.exports = {
     let totalMessages = 0;
     let channelsProcessed = 0;
 
-    // --- BOUCLE ---
+    // --- Boucle sur chaque salon ---
     for (const [channelId, channel] of allChannels) {
       let lastMessageId = null;
       let keepScanning = true;
-      let channelMsgCount = 0;
 
-      // Skip si le bot ne peut pas voir le salon
+      // Skip si le bot n'a pas la permission de voir le salon
       if (!channel.viewable) {
         channelsProcessed++;
         continue;
@@ -91,11 +88,13 @@ module.exports = {
 
       try {
         while (keepScanning) {
+          // Pagination par paquets de 100 messages
           const options = { limit: 100 };
           if (lastMessageId) options.before = lastMessageId;
 
           const messages = await channel.messages.fetch(options);
 
+          // Si plus de messages, on passe au salon suivant
           if (messages.size === 0) {
             keepScanning = false;
             break;
@@ -104,7 +103,7 @@ module.exports = {
           const batchData = [];
 
           for (const msg of messages.values()) {
-            // Arrêt si hors délai
+            // Si le message est plus vieux que la date limite, on arrête le scan de ce salon
             if (msg.createdTimestamp < limitDate) {
               keepScanning = false;
               break;
@@ -119,16 +118,16 @@ module.exports = {
             });
 
             totalMessages++;
-            channelMsgCount++;
           }
 
+          // Écriture groupée en base de données
           if (batchData.length > 0) {
             db.updateBatch(batchData);
           }
 
           lastMessageId = messages.last().id;
 
-          // Anti-Rate Limit
+          // Pause pour éviter le Rate Limit de l'API Discord
           await sleep(600);
         }
       } catch (err) {
@@ -137,7 +136,7 @@ module.exports = {
 
       channelsProcessed++;
 
-      // Feedback visuel tous les 5 salons pour ne pas spammer l'API
+      // Mise à jour du statut visuel tous les 5 salons
       if (channelsProcessed % 5 === 0) {
         await interaction.editReply(
           `🔄 **Scan en cours...**\n📊 Progression : ${channelsProcessed}/${allChannels.size} salons.\n📨 Messages indexés : ${totalMessages}`

@@ -24,8 +24,6 @@ module.exports = {
       return interaction.reply({ embeds: [embed] });
     }
 
-    // Construction de la liste
-    // Utilisation de .map().join() plus propre que foreach +=
     const description = topUsers
       .map((u, index) => {
         let rankEmoji = `**${index + 1}.**`;
@@ -33,7 +31,7 @@ module.exports = {
         if (index === 1) rankEmoji = "🥈";
         if (index === 2) rankEmoji = "🥉";
 
-        // IMPORTANT : escapeMarkdown empêche les pseudos comme "*Test*" de casser le gras
+        // Nettoyage du pseudo pour éviter que les caractères spéciaux ne cassent l'affichage
         const cleanUsername = escapeMarkdown(u.username);
 
         return `${rankEmoji} **${cleanUsername}** — \`${u.score} pts\``;

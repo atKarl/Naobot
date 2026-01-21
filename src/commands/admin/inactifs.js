@@ -18,7 +18,6 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    // 1. Vérification Sécurité (Admin uniquement)
     if (
       !interaction.member.permissions.has(
         PermissionsBitField.Flags.Administrator
@@ -32,7 +31,7 @@ module.exports = {
 
     const days = interaction.options.getInteger("jours");
 
-    // 2. Récupération des données (Liste complète sans limite)
+    // Récupération de la liste complète
     const list = db.getInactiveUsersList(days);
 
     if (list.length === 0) {
@@ -42,7 +41,7 @@ module.exports = {
       });
     }
 
-    // 3. Construction du contenu du fichier texte
+    // Construction du contenu du fichier texte
     let fileContent = `=== RAPPORT D'INACTIVITÉ ===\n`;
     fileContent += `Serveur : ${interaction.guild.name}\n`;
     fileContent += `Date du rapport : ${new Date().toLocaleString("fr-FR")}\n`;
@@ -51,13 +50,9 @@ module.exports = {
     fileContent += `----------------------------------------------------\n\n`;
 
     list.forEach((u) => {
-      // Conversion du timestamp en date lisible
       const dateStr = new Date(u.last_active_timestamp).toLocaleDateString(
         "fr-FR"
       );
-
-      // Format de la ligne : [JJ/MM/AAAA] Pseudo (ID Discord)
-      // On gère le cas où le pseudo serait null dans la DB
       const safeUsername = u.username || "Pseudo Inconnu";
       fileContent += `[Dernière vue : ${dateStr}] ${safeUsername} (ID: ${u.user_id})\n`;
     });
@@ -65,17 +60,16 @@ module.exports = {
     fileContent += `\n----------------------------------------------------\n`;
     fileContent += `Fin du rapport.`;
 
-    // 4. Création du fichier en mémoire (Buffer)
+    // Création du fichier en mémoire (Buffer) pour l'envoi
     const buffer = Buffer.from(fileContent, "utf-8");
     const attachment = new AttachmentBuilder(buffer, {
       name: `inactifs_${days}jours.txt`,
     });
 
-    // 5. Envoi de la réponse avec le fichier
     await interaction.reply({
-      content: `✅ **Rapport généré avec succès !**\nVoici la liste complète des ${list.length} membres inactifs sous forme de fichier texte.`,
+      content: `✅ **Rapport généré avec succès !**\nVoici la liste complète des ${list.length} membres inactifs.`,
       files: [attachment],
-      flags: MessageFlags.Ephemeral, // Visible uniquement par vous
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

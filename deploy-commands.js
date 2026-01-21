@@ -4,39 +4,34 @@ const fs = require("fs");
 const path = require("path");
 
 const commands = [];
-// Chemin vers le dossier des commandes
 const foldersPath = path.join(__dirname, "src/commands");
 const commandFolders = fs.readdirSync(foldersPath);
 
 console.log("Lecture des commandes en cours...");
 
-// 1. Parcours des dossiers (admin, public...)
+// 1. Parcours des sous-dossiers (admin, public...)
 for (const folder of commandFolders) {
   const commandsPath = path.join(foldersPath, folder);
   const commandFiles = fs
     .readdirSync(commandsPath)
     .filter((file) => file.endsWith(".js"));
 
-  // 2. Parcours des fichiers .js dans chaque dossier
+  // 2. Chargement des fichiers de commande
   for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
 
-    // Vérification que la commande est valide
     if ("data" in command && "execute" in command) {
       commands.push(command.data.toJSON());
       console.log(` -> Chargé : ${command.data.name}`);
     } else {
-      console.log(
-        `[AVERTISSEMENT] La commande à ${filePath} manque de propriétés "data" ou "execute".`
-      );
+      console.log(`[AVERTISSEMENT] La commande à ${filePath} est incomplète.`);
     }
   }
 }
 
 const rest = new REST({ version: "10" }).setToken(config.token);
 
-// 3. Envoi à l'API Discord
 (async () => {
   try {
     console.log(
