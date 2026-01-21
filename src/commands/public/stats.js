@@ -1,6 +1,7 @@
 const {
   SlashCommandBuilder,
   EmbedBuilder,
+  MessageFlags,
   escapeMarkdown,
 } = require("discord.js");
 const db = require("../../database");
@@ -9,13 +10,13 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("stats")
     .setDescription(
-      "Affiche vos statistiques d'activité ou celles d'un autre membre"
+      "Affiche vos statistiques d'activité ou celles d'un autre membre",
     )
     .addUserOption((option) =>
       option
         .setName("target")
         .setDescription("L'utilisateur à vérifier (Optionnel)")
-        .setRequired(false)
+        .setRequired(false),
     ),
 
   async execute(interaction) {
@@ -34,11 +35,14 @@ module.exports = {
       embed
         .setTitle(`Statistiques de ${targetUser.username}`)
         .setDescription(
-          "🛑 **Cet utilisateur a désactivé le suivi d'activité.**\nSes statistiques sont privées."
+          "🛑 **Cet utilisateur a désactivé le suivi d'activité.**\nSes statistiques sont privées.",
         )
-        .setFooter({ text: "Respect de la vie privée (RGPD)" });
+        .setFooter({ text: "Respect de la vie privée" });
 
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral,
+      });
     }
 
     // Utilisation des Timestamps dynamiques Discord
@@ -57,7 +61,7 @@ module.exports = {
           value: `**${stats.count}** actions`,
           inline: true,
         },
-        { name: "🕒 Dernière vue", value: lastActiveField, inline: true }
+        { name: "🕒 Dernière vue", value: lastActiveField, inline: true },
       );
 
     if (isOptOut && isSelf) {
@@ -66,6 +70,9 @@ module.exports = {
       });
     }
 
-    await interaction.reply({ embeds: [embed], ephemeral: isOptOut && isSelf });
+    await interaction.reply({
+      embeds: [embed],
+      flags: isOptOut && isSelf ? MessageFlags.Ephemeral : undefined,
+    });
   },
 };
