@@ -83,8 +83,9 @@ module.exports = {
         continue;
       }
 
-      try {
-        while (keepScanning) {
+      // Boucle de pagination des messages
+      while (keepScanning) {
+        try {
           // Pagination par paquets de 100 messages
           const options = { limit: 100 };
           if (lastMessageId) options.before = lastMessageId;
@@ -126,9 +127,14 @@ module.exports = {
 
           // Pause pour éviter le Rate Limit de l'API Discord
           await sleep(600);
+        } catch (err) {
+          console.error(
+            `[SCAN] Erreur critique sur le salon ${channel.name}: ${err.message}`,
+          );
+          // SÉCURITÉ : On arrête de scanner ce salon pour éviter une boucle infinie en cas d'erreur API
+          keepScanning = false;
+          break;
         }
-      } catch (err) {
-        console.log(`[SCAN] Erreur salon ${channel.name}: ${err.message}`);
       }
 
       channelsProcessed++;
