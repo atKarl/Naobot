@@ -58,7 +58,7 @@ module.exports = {
       .addFields(
         {
           name: "📊 Score d'activité",
-          value: `**${stats.count}** actions`,
+          value: `**${stats.count}** points`,
           inline: true,
         },
         { name: "🕒 Dernière vue", value: lastActiveField, inline: true },
