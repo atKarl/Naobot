@@ -84,7 +84,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 // Tracking des Messages
 client.on(Events.MessageCreate, async (message) => {
-  if (message.author.bot) return;
+  if (message.author.bot || !message.guild) return;
 
   // Si le membre a le rôle inactif, on lui retire immédiatement
   if (
