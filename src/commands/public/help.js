@@ -10,7 +10,6 @@ module.exports = {
     .setDescription("Guide du serveur : Points, Rangs et Vie Privée"),
 
   async execute(interaction) {
-    // Couleur Vert "Nantes"
     const THEME_COLOR = 0x00a650;
 
     const embed = new EmbedBuilder()
@@ -34,11 +33,11 @@ module.exports = {
         },
         {
           name: "🤖 Commandes",
-          value: `\`/stats\` : Voir vos points.\n\`/top\` : Voir le classement.\n\`/privacy\` : Gérer vos données.`,
+          value: `\`/stats\` : Voir vos points.\n\`/top\` : Voir le classement.\n\`/privacy\` : Gérer vos données.\n\`/help\` : Afficher ce guide.`,
         },
       )
       .setFooter({
-        text: "NaoBot v1.0 • Nantes Community",
+        text: "NaoBot • Guide du serveur",
         iconURL: interaction.guild.iconURL(),
       })
       .setTimestamp();
