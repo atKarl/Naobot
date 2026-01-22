@@ -53,7 +53,7 @@ client.once(Events.ClientReady, (c) => {
     activities: [
       {
         name: "/help pour avoir de l'aide",
-        type: ActivityType.Watching, 
+        type: ActivityType.Watching,
       },
     ],
     status: "online",
@@ -85,6 +85,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
 // Tracking des Messages
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
+
+  // Si le membre a le rôle inactif, on lui retire immédiatement
+  if (
+    message.guild &&
+    message.member &&
+    message.member.roles.cache.has(config.roles.inactive)
+  ) {
+    try {
+      await message.member.roles.remove(config.roles.inactive);
+      console.log(
+        `[RÉVEIL] Le rôle inactif a été retiré à ${message.author.tag}`,
+      );
+    } catch (err) {
+      console.error(
+        `Impossible de retirer le rôle inactif à ${message.author.tag} :`,
+        err.message,
+      );
+    }
+  }
+
   // Vérification des salons ignorés
   if (
     config.ignoredChannels &&
@@ -107,12 +127,32 @@ client.on(Events.MessageCreate, async (message) => {
 // Tracking des Réactions
 client.on(Events.MessageReactionAdd, async (reaction, user) => {
   if (user.bot) return;
-  if (reaction.partial)
+
+  // Gestion des messages partiels (vieux messages non cachés)
+  if (reaction.partial) {
     try {
       await reaction.fetch();
     } catch (e) {
       return;
     }
+  }
+
+  // Retrait du rôle Inactif si l'utilisateur met une réaction
+  if (reaction.message.guild) {
+    try {
+      // On doit récupérer le membre pour accéder à ses rôles
+      const member = await reaction.message.guild.members.fetch(user.id);
+
+      if (member.roles.cache.has(config.roles.inactive)) {
+        await member.roles.remove(config.roles.inactive);
+        console.log(
+          `[RÉVEIL] Rôle inactif retiré via réaction pour ${user.tag}`,
+        );
+      }
+    } catch (err) {
+      // Erreur silencieuse (ex: membre a quitté le serveur entre temps)
+    }
+  }
 
   if (
     config.ignoredChannels &&
