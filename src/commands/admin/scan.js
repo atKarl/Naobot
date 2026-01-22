@@ -13,8 +13,10 @@ module.exports = {
     .addIntegerOption((option) =>
       option
         .setName("jours")
-        .setDescription("Nombre de jours à scanner")
-        .setRequired(true),
+        .setDescription("Nombre de jours à scanner - 365 max")
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(365),
     )
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
 
