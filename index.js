@@ -312,7 +312,7 @@ function initCronJobs() {
 
     try {
       // --- ÉTAPE A : COPIE DU FICHIER ---
-      await fs.promises.copyFile(dbPath, backupPath);
+      await db.createBackup(backupPath);
       console.log(`[BACKUP] ✅ Copie locale réussie : ${fileName}`);
 
       // --- ÉTAPE B : ENVOI SUR DISCORD ---

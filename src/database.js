@@ -224,6 +224,10 @@ function removeUserData(userId) {
   }
 }
 
+function createBackup(destinationPath) {
+  return db.backup(destinationPath);
+}
+
 module.exports = {
   initDb,
   logActivity,
@@ -236,4 +240,5 @@ module.exports = {
   getTopUserByPeriod,
   pruneLogs,
   removeUserData,
+  createBackup,
 };
