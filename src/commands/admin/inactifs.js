@@ -30,45 +30,73 @@ module.exports = {
 
     const days = interaction.options.getInteger("jours");
 
-    // Récupération de la liste complète
-    const list = db.getInactiveUsersList(days);
+    // Message d'attente car le fetch des membres peut être long
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    if (list.length === 0) {
-      return interaction.reply({
-        content: `✅ Aucune inactivité détectée depuis ${days} jours. Tout le monde est actif !`,
-        flags: MessageFlags.Ephemeral,
+    // 2. Récupération de la liste brute depuis la DB
+    const dbList = db.getInactiveUsersList(days);
+
+    if (dbList.length === 0) {
+      return interaction.editReply({
+        content: `✅ Aucune inactivité détectée depuis ${days} jours selon la base de données.`,
       });
     }
 
-    // Construction du contenu du fichier texte
+    // 3. Récupération des membres ACTUELS du serveur Discord
+    let currentMembers;
+    try {
+      // On force le chargement de tous les membres du serveur
+      currentMembers = await interaction.guild.members.fetch();
+    } catch (error) {
+      console.error("Erreur lors du fetch des membres:", error);
+      return interaction.editReply(
+        "❌ Erreur technique lors de la récupération des membres Discord.",
+      );
+    }
+
+    // 4. Filtrage : On ne garde que ceux qui sont dans la DB ET sur le serveur
+    const verifiedList = dbList.filter((u) => {
+      const member = currentMembers.get(u.user_id);
+      return member && !member.user.bot;
+    });
+
+    if (verifiedList.length === 0) {
+      return interaction.editReply({
+        content: `✅ Après vérification, tous les membres inactifs de la base de données ont déjà quitté le serveur.`,
+      });
+    }
+
+    // 5. Construction du contenu du fichier texte
     let fileContent = `=== RAPPORT D'INACTIVITÉ ===\n`;
     fileContent += `Serveur : ${interaction.guild.name}\n`;
     fileContent += `Date du rapport : ${new Date().toLocaleString("fr-FR")}\n`;
     fileContent += `Critère : Aucune activité depuis ${days} jours\n`;
-    fileContent += `Nombre total de membres trouvés : ${list.length}\n`;
+    fileContent += `Membres trouvés (Présents sur le serveur) : ${verifiedList.length}\n`;
     fileContent += `----------------------------------------------------\n\n`;
 
-    list.forEach((u) => {
+    verifiedList.forEach((u) => {
       const dateStr = new Date(u.last_active_timestamp).toLocaleDateString(
         "fr-FR",
       );
-      const safeUsername = u.username || "Pseudo Inconnu";
-      fileContent += `[Dernière vue : ${dateStr}] ${safeUsername} (ID: ${u.user_id})\n`;
+      // On essaie de récupérer le pseudo actuel sur le serveur, sinon celui de la DB
+      const member = currentMembers.get(u.user_id);
+      const currentUsername = member ? member.user.username : u.username;
+
+      fileContent += `[Dernière vue : ${dateStr}] ${currentUsername} (ID: ${u.user_id})\n`;
     });
 
     fileContent += `\n----------------------------------------------------\n`;
     fileContent += `Fin du rapport.`;
 
-    // Création du fichier en mémoire (Buffer) pour l'envoi
+    // Création du fichier
     const buffer = Buffer.from(fileContent, "utf-8");
     const attachment = new AttachmentBuilder(buffer, {
       name: `inactifs_${days}jours.txt`,
     });
 
-    await interaction.reply({
-      content: `✅ **Rapport généré avec succès !**\nVoici la liste complète des ${list.length} membres inactifs.`,
+    await interaction.editReply({
+      content: `✅ **Rapport généré avec succès !**\nVoici la liste des **${verifiedList.length}** membres réellement présents sur le serveur et inactifs.`,
       files: [attachment],
-      flags: MessageFlags.Ephemeral,
     });
   },
 };
