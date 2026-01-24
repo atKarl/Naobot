@@ -24,22 +24,34 @@ module.exports = {
       return interaction.reply({ embeds: [embed] });
     }
 
-    const description = topUsers
-      .map((u, index) => {
+    await interaction.deferReply();
+
+    const descriptionLines = await Promise.all(
+      topUsers.map(async (u, index) => {
         let rankEmoji = `**${index + 1}.**`;
         if (index === 0) rankEmoji = "🥇";
         if (index === 1) rankEmoji = "🥈";
         if (index === 2) rankEmoji = "🥉";
 
+        let displayName = u.username;
+
+        try {
+          const member = await interaction.guild.members.fetch(u.user_id);
+          displayName = member.displayName; // C'est le "Surnom" sur le serveur
+        } catch (e) {
+          // Si le membre a quitté le serveur, le fetch échoue.
+          // On garde le u.username de la base de données dans ce cas.
+        }
+
         // Nettoyage du pseudo pour éviter que les caractères spéciaux ne cassent l'affichage
-        const cleanUsername = escapeMarkdown(u.username);
+        const cleanName = escapeMarkdown(displayName);
 
-        return `${rankEmoji} **${cleanUsername}** — \`${u.score} pts\``;
-      })
-      .join("\n");
+        return `${rankEmoji} **${cleanName}** — \`${u.score} pts\``;
+      }),
+    );
 
-    embed.setDescription(description);
+    embed.setDescription(descriptionLines.join("\n"));
 
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   },
 };
