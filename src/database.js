@@ -228,6 +228,11 @@ function createBackup(destinationPath) {
   return db.backup(destinationPath);
 }
 
+function getAllUserIds() {
+  const rows = db.prepare("SELECT user_id FROM users").all();
+  return rows.map((row) => row.user_id);
+}
+
 module.exports = {
   initDb,
   logActivity,
@@ -241,4 +246,5 @@ module.exports = {
   pruneLogs,
   removeUserData,
   createBackup,
+  getAllUserIds,
 };
