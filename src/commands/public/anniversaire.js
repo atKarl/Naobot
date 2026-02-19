@@ -278,37 +278,39 @@ const MONTH_NAMES_CAP = [
 async function buildBirthdayChunks(guild) {
   const all = db.getAllBirthdays();
 
-  // FIX 1 : On retourne bien un tableau vide (et non undefined)
   if (all.length === 0) {
     return [];
   }
 
+  // On essaie de charger les membres pour vérifier qui est encore sur le serveur
   try {
     await guild.members.fetch();
   } catch (err) {
-    console.warn(
-      " Impossible de fetch les membres (DisplayNames potentiellement incomplets).",
-    );
+    console.warn("Impossible de fetch les membres.");
   }
 
   const lines = [];
   let currentMonth = 0;
 
   for (const entry of all) {
+    // Séparateur de mois
     if (entry.month !== currentMonth) {
       currentMonth = entry.month;
       lines.push(`\n── ${MONTH_NAMES_CAP[entry.month]} ──`);
     }
 
-    let displayName = entry.username;
-    const cachedMember = guild.members.cache.get(entry.user_id);
-    if (cachedMember) displayName = cachedMember.displayName;
+    // LOGIQUE DE MENTION SILENCIEUSE
+    // Si le membre est sur le serveur -> <@ID> (Cliquable + Auto-update)
+    // Sinon -> Nom texte brut (pour garder une trace propre)
+    const member = guild.members.cache.get(entry.user_id);
+    const nameDisplay = member ? `<@${entry.user_id}>` : entry.username;
 
     lines.push(
-      `  🎂 ${String(entry.day).padStart(2, "0")}/${String(entry.month).padStart(2, "0")} — ${displayName}`,
+      `  🎂 ${String(entry.day).padStart(2, "0")}/${String(entry.month).padStart(2, "0")} — ${nameDisplay}`,
     );
   }
 
+  // Pagination (inchangée)
   const CHUNK_SIZE = 1900;
   const chunks = [];
   let current = "📅 **Liste des Anniversaires**\n";
@@ -335,7 +337,7 @@ async function buildBirthdayChunks(guild) {
  * @param {import("discord.js").Guild} guild
  */
 async function refreshBirthdayMessage(guild) {
-  const config = require("../../config.json");
+  const config = require("../../../config.json");
   const channelId = config.channels?.birthdays;
 
   if (!channelId || channelId === "ID_DU_SALON") return;
@@ -349,6 +351,7 @@ async function refreshBirthdayMessage(guild) {
   }
 
   const chunks = await buildBirthdayChunks(guild);
+  const silenceOptions = { allowedMentions: { parse: [] } };
 
   // 1. On récupère les 10 derniers messages du salon
   const messages = await channel.messages.fetch({ limit: 10 });
@@ -368,11 +371,17 @@ async function refreshBirthdayMessage(guild) {
   // FIX 2 : Utilisation de l'index [i] pour manipuler chaque message et chunk individuellement
   for (let i = 0; i < chunks.length; i++) {
     if (botMessages[i]) {
-      // Le bot a déjà un message ici, on l'édite avec le contenu du chunk correspondant
-      await botMessages[i].edit({ content: chunks[i] });
+      // ÉDITION SILENCIEUSE
+      await botMessages[i].edit({
+        content: chunks[i],
+        ...silenceOptions,
+      });
     } else {
-      // Pas assez de messages, on en crée un nouveau
-      await channel.send({ content: chunks[i] });
+      // ENVOI SILENCIEUX
+      await channel.send({
+        content: chunks[i],
+        ...silenceOptions,
+      });
     }
   }
 
