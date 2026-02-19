@@ -1,37 +1,39 @@
 const Database = require("better-sqlite3");
 const path = require("path");
 
-// Connexion à la base de données (fichier data.db à la racine)
 const db = new Database(path.join(__dirname, "../data.db"), { verbose: null });
-// Mode WAL pour de meilleures performances en écriture simultanée
 db.pragma("journal_mode = WAL");
 
-// Cache en mémoire { userId: timestamp }
-// Permet de vérifier le délai anti-spam sans lire le disque dur à chaque message
 const cooldownCache = new Map();
 
 function initDb() {
-  // Initialisation des tables
   db.exec(`
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT PRIMARY KEY,
-            username TEXT,
-            last_active_timestamp INTEGER,
-            tracking_enabled INTEGER DEFAULT 1 -- 1 = Suivi activé (RGPD), 0 = Désactivé
-        );
-        CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
-            type TEXT, -- 'message', 'reaction', 'file'
-            timestamp INTEGER,
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
-        );
-        -- Index pour accélérer les recherches et classements
-        CREATE INDEX IF NOT EXISTS idx_logs_user ON logs(user_id);
-        CREATE INDEX IF NOT EXISTS idx_logs_time ON logs(timestamp);
-    `);
+    CREATE TABLE IF NOT EXISTS users (
+      user_id TEXT PRIMARY KEY,
+      username TEXT,
+      last_active_timestamp INTEGER,
+      tracking_enabled INTEGER DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT,
+      type TEXT,
+      timestamp INTEGER,
+      FOREIGN KEY(user_id) REFERENCES users(user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_logs_user ON logs(user_id);
+    CREATE INDEX IF NOT EXISTS idx_logs_time ON logs(timestamp);
 
-  // Vérification et ajout de la colonne tracking_enabled si elle manque (Migration)
+    -- Table des anniversaires (jour/mois uniquement — l'année n'est jamais stockée)
+    CREATE TABLE IF NOT EXISTS birthdays (
+      user_id   TEXT PRIMARY KEY,
+      username  TEXT,
+      day       INTEGER NOT NULL, -- Jour (1-31)
+      month     INTEGER NOT NULL  -- Mois (1-12)
+    );
+    CREATE INDEX IF NOT EXISTS idx_birthdays_month_day ON birthdays(month, day);
+  `);
+
   try {
     db.prepare("SELECT tracking_enabled FROM users LIMIT 1").get();
   } catch (error) {
@@ -47,41 +49,30 @@ function initDb() {
   console.log("Base de données chargée.");
 }
 
-/**
- * Enregistre une activité utilisateur
- * Utilise un cache mémoire pour réduire les I/O disque
- */
 function logActivity(userId, username, type, cooldownMs = 60000) {
   const now = Date.now();
 
-  // 1. Vérification rapide via le Cache RAM
   if (cooldownCache.has(userId)) {
     const lastTime = cooldownCache.get(userId);
-    if (now - lastTime < cooldownMs) {
-      return; // Délai non écoulé, on ignore
-    }
+    if (now - lastTime < cooldownMs) return;
   }
 
-  // 2. Vérification du statut RGPD (Lecture DB nécessaire)
   const userCheck = db
     .prepare("SELECT tracking_enabled FROM users WHERE user_id = ?")
     .get(userId);
   if (userCheck && userCheck.tracking_enabled === 0) return;
 
-  // 3. Écriture en base via une Transaction (Atomique)
   const logTransaction = db.transaction(() => {
-    // Création ou mise à jour de l'utilisateur
     db.prepare(
       `
-            INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
-            VALUES (?, ?, ?, 1)
-            ON CONFLICT(user_id) DO UPDATE SET
-                last_active_timestamp = excluded.last_active_timestamp,
-                username = excluded.username
-        `,
+      INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
+      VALUES (?, ?, ?, 1)
+      ON CONFLICT(user_id) DO UPDATE SET
+        last_active_timestamp = excluded.last_active_timestamp,
+        username = excluded.username
+    `,
     ).run(userId, username, now);
 
-    // Enregistrement de l'événement
     db.prepare(
       "INSERT INTO logs (user_id, type, timestamp) VALUES (?, ?, ?)",
     ).run(userId, type, now);
@@ -89,43 +80,34 @@ function logActivity(userId, username, type, cooldownMs = 60000) {
 
   try {
     logTransaction();
-
-    // 4. Mise à jour du cache RAM
     cooldownCache.set(userId, now);
-
-    // Nettoyage automatique de la clé cache après expiration du délai
     setTimeout(() => cooldownCache.delete(userId), cooldownMs);
   } catch (err) {
     console.error("Erreur écriture DB:", err);
   }
 }
 
-/**
- * Transaction par lot pour le scan d'historique
- * Écrit plusieurs entrées en une seule opération pour la performance
- */
 const updateBatch = db.transaction((messages) => {
   const stmt = db.prepare(`
-        INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
-        VALUES (?, ?, ?, 1)
-        ON CONFLICT(user_id) DO UPDATE SET
-            last_active_timestamp = MAX(last_active_timestamp, excluded.last_active_timestamp),
-            username = excluded.username
-    `);
+    INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
+    VALUES (?, ?, ?, 1)
+    ON CONFLICT(user_id) DO UPDATE SET
+      last_active_timestamp = MAX(last_active_timestamp, excluded.last_active_timestamp),
+      username = excluded.username
+  `);
   for (const msg of messages) {
     stmt.run(msg.userId, msg.username, msg.ts);
   }
 });
 
-// Active ou désactive le suivi pour un utilisateur (RGPD)
 function setTrackingStatus(userId, enabled) {
   const status = enabled ? 1 : 0;
   db.prepare(
     `
-        INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
-        VALUES (?, 'Inconnu', ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET tracking_enabled = ?
-    `,
+    INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
+    VALUES (?, 'Inconnu', ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET tracking_enabled = ?
+  `,
   ).run(userId, Date.now(), status, status);
 }
 
@@ -149,11 +131,11 @@ function getTopUsers(limit = 10) {
   return db
     .prepare(
       `
-        SELECT u.username, u.user_id, COUNT(l.id) as score
-        FROM users u JOIN logs l ON u.user_id = l.user_id
-        WHERE u.tracking_enabled = 1
-        GROUP BY u.user_id ORDER BY score DESC LIMIT ?
-    `,
+    SELECT u.username, u.user_id, COUNT(l.id) as score
+    FROM users u JOIN logs l ON u.user_id = l.user_id
+    WHERE u.tracking_enabled = 1
+    GROUP BY u.user_id ORDER BY score DESC LIMIT ?
+  `,
     )
     .all(limit);
 }
@@ -180,29 +162,32 @@ function getTopUserByPeriod(startTs, endTs) {
   return db
     .prepare(
       `
-        SELECT u.user_id, COUNT(l.id) as score FROM logs l JOIN users u ON l.user_id = u.user_id
-        WHERE l.timestamp >= ? AND l.timestamp <= ? AND u.tracking_enabled = 1
-        GROUP BY u.user_id ORDER BY score DESC LIMIT 1
-    `,
+    SELECT u.user_id, COUNT(l.id) as score FROM logs l JOIN users u ON l.user_id = u.user_id
+    WHERE l.timestamp >= ? AND l.timestamp <= ? AND u.tracking_enabled = 1
+    GROUP BY u.user_id ORDER BY score DESC LIMIT 1
+  `,
     )
     .get(startTs, endTs);
 }
 
-// Supprime les logs plus vieux que X jours pour limiter la taille de la DB
 function pruneLogs(daysRetention) {
   const limitTimestamp = Date.now() - daysRetention * 24 * 60 * 60 * 1000;
   return db.prepare("DELETE FROM logs WHERE timestamp < ?").run(limitTimestamp)
     .changes;
 }
 
-// Supprime toutes les données d'un utilisateur si il quitte le serveur (RGPD)
+/**
+ * Supprime toutes les données d'un utilisateur (RGPD + départ serveur).
+ */
 function removeUserData(userId) {
   const deleteLogs = db.prepare("DELETE FROM logs WHERE user_id = ?");
   const deleteUser = db.prepare("DELETE FROM users WHERE user_id = ?");
+  const deleteBirthday = db.prepare("DELETE FROM birthdays WHERE user_id = ?");
 
   const transaction = db.transaction(() => {
     const logsResult = deleteLogs.run(userId);
     const userResult = deleteUser.run(userId);
+    deleteBirthday.run(userId);
     return { logs: logsResult.changes, user: userResult.changes };
   });
 
@@ -212,7 +197,6 @@ function removeUserData(userId) {
       `[GDPR] Suppression user ${userId} : ${result.user} user, ${result.logs} logs.`,
     );
 
-    // Nettoyage du cache RAM si présent
     if (cooldownCache.has(userId)) {
       cooldownCache.delete(userId);
     }
@@ -233,6 +217,89 @@ function getAllUserIds() {
   return rows.map((row) => row.user_id);
 }
 
+// ================================================================
+// FONCTIONS ANNIVERSAIRES
+// ================================================================
+
+/**
+ * Enregistre ou met à jour l'anniversaire d'un utilisateur.
+ * L'année n'est jamais stockée.
+ *
+ * @param {string} userId
+ * @param {string} username
+ * @param {number} day    - 1-31
+ * @param {number} month  - 1-12
+ */
+function setBirthday(userId, username, day, month) {
+  db.prepare(
+    `
+    INSERT INTO birthdays (user_id, username, day, month)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      username = excluded.username,
+      day      = excluded.day,
+      month    = excluded.month
+  `,
+  ).run(userId, username, day, month);
+}
+
+/**
+ * Supprime l'anniversaire d'un utilisateur.
+ *
+ * @param {string} userId
+ * @returns {number} Nombre de lignes supprimées (0 ou 1)
+ */
+function deleteBirthday(userId) {
+  return db.prepare("DELETE FROM birthdays WHERE user_id = ?").run(userId)
+    .changes;
+}
+
+/**
+ * Récupère l'anniversaire d'un utilisateur.
+ *
+ * @param {string} userId
+ * @returns {{ user_id, username, day, month } | undefined}
+ */
+function getBirthday(userId) {
+  return db.prepare("SELECT * FROM birthdays WHERE user_id = ?").get(userId);
+}
+
+/**
+ * Retourne tous les anniversaires triés chronologiquement.
+ *
+ * @returns {Array<{ user_id, username, day, month }>}
+ */
+function getAllBirthdays() {
+  return db
+    .prepare(
+      `
+    SELECT user_id, username, day, month
+    FROM birthdays
+    ORDER BY month ASC, day ASC
+  `,
+    )
+    .all();
+}
+
+/**
+ * Retourne les anniversaires du jour (pour le cron d'annonces).
+ *
+ * @param {number} day
+ * @param {number} month
+ * @returns {Array<{ user_id, username }>}
+ */
+function getTodayBirthdays(day, month) {
+  return db
+    .prepare(
+      `
+    SELECT user_id, username
+    FROM birthdays
+    WHERE day = ? AND month = ?
+  `,
+    )
+    .all(day, month);
+}
+
 module.exports = {
   initDb,
   logActivity,
@@ -247,4 +314,9 @@ module.exports = {
   removeUserData,
   createBackup,
   getAllUserIds,
+  setBirthday,
+  deleteBirthday,
+  getBirthday,
+  getAllBirthdays,
+  getTodayBirthdays,
 };
