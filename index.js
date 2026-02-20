@@ -66,9 +66,7 @@ client.once(Events.ClientReady, (c) => {
     try {
       const guild = c.guilds.cache.get(config.guildId);
       if (guild) {
-        const {
-          refreshBirthdayMessage,
-        } = require("./src/commands/public/anniversaire");
+        const { refreshBirthdayMessage } = require("./src/utils/birthday");
         await refreshBirthdayMessage(guild);
         console.log(
           "[ANNIVERSAIRES] ✅ Liste persistante rafraîchie au démarrage.",
@@ -163,14 +161,11 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 client.on(Events.GuildMemberRemove, async (member) => {
   if (member.user.bot) return;
 
-  // removeUserData() supprime maintenant aussi l'anniversaire (via transaction)
   db.removeUserData(member.id);
 
   // Mise à jour de la liste persistante des anniversaires
   try {
-    const {
-      refreshBirthdayMessage,
-    } = require("./src/commands/public/anniversaire");
+    const { refreshBirthdayMessage } = require("./src/utils/birthday");
     await refreshBirthdayMessage(member.guild);
   } catch (err) {
     console.error(
@@ -354,55 +349,61 @@ function initCronJobs() {
   // ----------------------------------------------------------------
   // Tâche 4 : Annonces d'Anniversaires — Tous les jours à 09h00
   // ----------------------------------------------------------------
-  cron.schedule("0 9 * * *", async () => {
-    console.log(" Vérification des anniversaires du jour...");
+  cron.schedule(
+    "0 9 * * *",
+    async () => {
+      console.log(" Vérification des anniversaires du jour...");
 
-    const guild = client.guilds.cache.get(config.guildId);
-    if (!guild) return;
+      const guild = client.guilds.cache.get(config.guildId);
+      if (!guild) return;
 
-    const now = new Date();
-    const day = now.getDate();
-    const month = now.getMonth() + 1;
-    const year = now.getFullYear();
+      const now = new Date();
+      const day = now.getDate();
+      const month = now.getMonth() + 1;
+      const year = now.getFullYear();
 
-    let todayBirthdays = db.getTodayBirthdays(day, month);
+      let todayBirthdays = db.getTodayBirthdays(day, month);
 
-    // --- FIX EDGE CASE 29 FÉVRIER ---
-    const isLeapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+      // --- FIX EDGE CASE 29 FÉVRIER ---
+      const isLeapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
 
-    // Si on est le 28 février d'une année normale, on intègre les natifs du 29
-    if (day === 28 && month === 2 && !isLeapYear(year)) {
-      const leapBirthdays = db.getTodayBirthdays(29, 2);
-      todayBirthdays = todayBirthdays.concat(leapBirthdays);
-    }
+      // Si on est le 28 février d'une année normale, on intègre les natifs du 29
+      if (day === 28 && month === 2 && !isLeapYear(year)) {
+        const leapBirthdays = db.getTodayBirthdays(29, 2);
+        todayBirthdays = todayBirthdays.concat(leapBirthdays);
+      }
 
-    if (todayBirthdays.length === 0) {
-      console.log("[CRON] Aucun anniversaire aujourd'hui.");
-      return;
-    }
+      if (todayBirthdays.length === 0) {
+        console.log("[CRON] Aucun anniversaire aujourd'hui.");
+        return;
+      }
 
-    const channel = guild.channels.cache.get(config.channels.announcement);
-    if (!channel) {
-      console.warn(
-        "[ANNIVERSAIRES] Salon d'annonces introuvable :",
-        config.channels.announcement,
+      const channel = guild.channels.cache.get(config.channels.announcement);
+      if (!channel) {
+        console.warn(
+          "[ANNIVERSAIRES] Salon d'annonces introuvable :",
+          config.channels.announcement,
+        );
+        return;
+      }
+
+      // Construction des mentions @pseudo
+      const mentions = todayBirthdays.map((u) => `<@${u.user_id}>`).join(", ");
+      const plural = todayBirthdays.length > 1;
+
+      await channel.send(
+        `🎉🎂 Joyeux anniversaire ${mentions} !\n` +
+          `Le serveur entier ${plural ? "vous souhaite" : "te souhaite"} une merveilleuse journée ! 🥳`,
       );
-      return;
-    }
 
-    // Construction des mentions @pseudo
-    const mentions = todayBirthdays.map((u) => `<@${u.user_id}>`).join(", ");
-    const plural = todayBirthdays.length > 1;
-
-    await channel.send(
-      `🎉🎂 Joyeux anniversaire ${mentions} !\n` +
-        `Le serveur entier ${plural ? "vous souhaite" : "te souhaite"} une merveilleuse journée ! 🥳`,
-    );
-
-    console.log(
-      `[CRON] Annonce anniversaire envoyée pour : ${todayBirthdays.map((u) => u.username).join(", ")}`,
-    );
-  });
+      console.log(
+        `[CRON] Annonce anniversaire envoyée pour : ${todayBirthdays.map((u) => u.username).join(", ")}`,
+      );
+    },
+    {
+      timezone: "Europe/Paris",
+    },
+  );
 }
 
 client.login(config.token);
