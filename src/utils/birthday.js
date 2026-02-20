@@ -49,7 +49,7 @@ async function buildBirthdayChunks(guild) {
     const nameDisplay = member ? `<@${entry.user_id}>` : entry.username;
 
     lines.push(
-      `> ${String(entry.day).padStart(2, "0")}/${String(entry.month).padStart(2, "0")} — ${nameDisplay}`,
+      `* ${String(entry.day).padStart(2, "0")}/${String(entry.month).padStart(2, "0")} — ${nameDisplay}`,
     );
   }
 
