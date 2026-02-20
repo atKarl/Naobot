@@ -42,13 +42,15 @@ async function buildBirthdayChunks(guild) {
     if (entry.month !== currentMonth) {
       currentMonth = entry.month;
 
-      lines.push(`\n# 📅 ${MONTH_NAMES_CAP[entry.month]}`);
+      lines.push(`\n# ${MONTH_NAMES_CAP[entry.month]}`);
     }
 
     const member = guild.members.cache.get(entry.user_id);
     const nameDisplay = member ? `<@${entry.user_id}>` : entry.username;
 
-    lines.push(`> 🎂 ${String(entry.day).padStart(2, "0")} — ${nameDisplay}`);
+    lines.push(
+      `> ${String(entry.day).padStart(2, "0")}/${String(entry.month).padStart(2, "0")} — ${nameDisplay}`,
+    );
   }
 
   const CHUNK_SIZE = 1900;
