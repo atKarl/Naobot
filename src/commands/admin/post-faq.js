@@ -12,7 +12,7 @@ module.exports = {
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
-    const NANTES_COLOR = 0x00a650; 
+    const NANTES_COLOR = 0x00a650;
 
     const faqEmbed = new EmbedBuilder()
       .setColor(NANTES_COLOR)
@@ -44,7 +44,7 @@ module.exports = {
         {
           name: "⌨️ Commandes utiles",
           value:
-            "• `/stats` : Voir votre score.\n• `/top` : Voir le classement.\n• `/privacy` : Activer/Désactiver le suivi.\n• `/help` : Obtenir de l'aide sur les commandes.",
+            "• `/stats` : Voir votre score.\n• `/top` : Voir le classement.\n• `/privacy` : Activer/Désactiver le suivi.\n• `/help` : Obtenir de l'aide sur les commandes.\n• `/anniversaire set` : Ajouter votre date d'anniversaire au calendrier du serveur.",
         },
       )
       .setFooter({
