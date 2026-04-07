@@ -75,18 +75,20 @@ module.exports = {
     fileContent += `----------------------------------------------------\n\n`;
 
     verifiedList.forEach((u) => {
-      const dateStr = new Date(u.last_active_timestamp).toLocaleDateString(
-        "fr-FR",
-      );
-      // On essaie de récupérer le pseudo actuel sur le serveur, sinon celui de la DB
+      const dateStr = new Date(u.last_active_timestamp).toLocaleDateString("fr-FR");
       const member = currentMembers.get(u.user_id);
-      const currentUsername = member ? member.user.username : u.username;
-      const serverNickname = member?.nickname || currentUsername;
 
-      // Affichage : Pseudo Discord + Pseudo Serveur (toujours affiché)
-      const displayName = `${currentUsername} (Pseudo serveur: ${serverNickname})`;
+      if (!member) return; // Sécurité si le membre vient de partir
 
-      fileContent += `[Dernière vue : ${dateStr}] ${displayName} (ID: ${u.user_id})\n`;
+      const globalUsername = member.user.username; 
+      
+      const serverName = member.displayName; 
+
+      const formattedName = (serverName.toLowerCase() !== globalUsername.toLowerCase())
+        ? `${serverName} (@${globalUsername})`
+        : globalUsername;
+
+      fileContent += `[Dernière vue : ${dateStr}] ${formattedName} (ID: ${u.user_id})\n`;
     });
 
     fileContent += `\n----------------------------------------------------\n`;
