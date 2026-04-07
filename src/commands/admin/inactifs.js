@@ -81,13 +81,10 @@ module.exports = {
       // On essaie de récupérer le pseudo actuel sur le serveur, sinon celui de la DB
       const member = currentMembers.get(u.user_id);
       const currentUsername = member ? member.user.username : u.username;
-      const serverNickname = member?.nickname || null;
+      const serverNickname = member?.nickname || currentUsername;
 
-      // Affichage : Pseudo Discord + Pseudo Serveur (si différent)
-      let displayName = currentUsername;
-      if (serverNickname && serverNickname !== currentUsername) {
-        displayName = `${currentUsername} (Pseudo serveur: ${serverNickname})`;
-      }
+      // Affichage : Pseudo Discord + Pseudo Serveur (toujours affiché)
+      const displayName = `${currentUsername} (Pseudo serveur: ${serverNickname})`;
 
       fileContent += `[Dernière vue : ${dateStr}] ${displayName} (ID: ${u.user_id})\n`;
     });
