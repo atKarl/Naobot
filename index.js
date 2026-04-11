@@ -12,7 +12,33 @@ const {
   MessageFlags,
 } = require("discord.js");
 const cron = require("node-cron");
-const config = require("./config.json");
+
+// Validation de la configuration
+let config;
+try {
+  config = require("./config.json");
+  
+  // Vérification des champs essentiels
+  if (!config.token || config.token === "TOKEN_ICI") {
+    console.error("❌ Erreur Config : Le token Discord est manquant ou invalide");
+    process.exit(1);
+  }
+  if (!config.guildId || config.guildId === "ID_DU_SERVEUR") {
+    console.error("❌ Erreur Config : Le guildId est manquant ou invalide");
+    process.exit(1);
+  }
+  if (!config.clientId || config.clientId === "ID_DU_BOT") {
+    console.error("❌ Erreur Config : Le clientId est manquant ou invalide");
+    process.exit(1);
+  }
+  
+  console.log("✅ Configuration chargée et validée");
+} catch (error) {
+  console.error("❌ Erreur lors du chargement de config.json :", error.message);
+  console.error("💡 Assurez-vous que config.json existe et est valide (voir config.json.example)");
+  process.exit(1);
+}
+
 const db = require("./src/database");
 
 db.initDb();
@@ -147,8 +173,8 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
           `[RÉVEIL] Rôle inactif retiré via réaction pour ${user.tag}`,
         );
       }
-    } catch (_) {
-      /* Membre parti */
+    } catch (err) {
+      console.error(`[RÉVEIL] Erreur fetch membre ${user.id}:`, err.message);
     }
   }
 

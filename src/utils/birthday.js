@@ -30,9 +30,9 @@ async function buildBirthdayChunks(guild) {
   if (all.length === 0) return [];
 
   try {
-    await guild.members.fetch();
+    await guild.members.fetch({ force: false });
   } catch (err) {
-    console.warn("Fetch error");
+    console.warn("[ANNIVERSAIRES] Erreur fetch membres:", err.message);
   }
 
   const lines = [];
@@ -79,7 +79,8 @@ async function refreshBirthdayMessage(guild) {
   let channel;
   try {
     channel = await guild.client.channels.fetch(channelId);
-  } catch (_) {
+  } catch (err) {
+    console.error("[ANNIVERSAIRES] Erreur fetch salon:", err.message);
     return;
   }
 
