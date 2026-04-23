@@ -245,9 +245,7 @@ function getAllUserIds() {
   return rows.map((row) => row.user_id);
 }
 
-// ================================================================
-// FONCTIONS ANNIVERSAIRES
-// ================================================================
+// ========== ANNIVERSAIRES ==========
 
 /**
  * Enregistre ou met à jour l'anniversaire d'un utilisateur.
@@ -328,9 +326,7 @@ function getTodayBirthdays(day, month) {
     .all(day, month);
 }
 
-// ================================================================
-// FONCTIONS MEMBRE DU MOIS
-// ================================================================
+// ========== MEMBRE DU MOIS ==========
 
 /**
  * Sauvegarde un gagnant dans l'historique

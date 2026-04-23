@@ -37,13 +37,11 @@ module.exports = {
 
         try {
           const member = await interaction.guild.members.fetch(u.user_id);
-          displayName = member.displayName; // C'est le "Surnom" sur le serveur
+          displayName = member.displayName;
         } catch (e) {
-          // Si le membre a quitté le serveur, le fetch échoue.
-          // On garde le u.username de la base de données dans ce cas.
+          // Si le membre a quitté, on garde le username de la DB
         }
 
-        // Nettoyage du pseudo pour éviter que les caractères spéciaux ne cassent l'affichage
         const cleanName = escapeMarkdown(displayName);
 
         return `${rankEmoji} **${cleanName}** — \`${u.score} pts\``;

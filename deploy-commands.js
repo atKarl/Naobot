@@ -9,14 +9,12 @@ const commandFolders = fs.readdirSync(foldersPath);
 
 console.log("Lecture des commandes en cours...");
 
-// 1. Parcours des sous-dossiers (admin, public...)
 for (const folder of commandFolders) {
   const commandsPath = path.join(foldersPath, folder);
   const commandFiles = fs
     .readdirSync(commandsPath)
     .filter((file) => file.endsWith(".js"));
 
-  // 2. Chargement des fichiers de commande
   for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);

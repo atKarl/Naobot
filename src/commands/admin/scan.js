@@ -21,7 +21,6 @@ module.exports = {
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
 
   async execute(interaction) {
-    // Vérification des permissions
     if (
       !interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)
     ) {

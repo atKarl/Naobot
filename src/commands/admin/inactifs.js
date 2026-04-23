@@ -30,10 +30,8 @@ module.exports = {
 
     const days = interaction.options.getInteger("jours");
 
-    // Message d'attente car le fetch des membres peut être long
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    // 2. Récupération de la liste brute depuis la DB
     const dbList = db.getInactiveUsersList(days);
 
     if (dbList.length === 0) {
@@ -42,10 +40,8 @@ module.exports = {
       });
     }
 
-    // 3. Récupération des membres ACTUELS du serveur Discord
     let currentMembers;
     try {
-      // On force le chargement de tous les membres du serveur
       currentMembers = await interaction.guild.members.fetch();
     } catch (error) {
       console.error("Erreur lors du fetch des membres:", error);
@@ -54,7 +50,6 @@ module.exports = {
       );
     }
 
-    // 4. Filtrage : On ne garde que ceux qui sont dans la DB ET sur le serveur
     const verifiedList = dbList.filter((u) => {
       const member = currentMembers.get(u.user_id);
       return member && !member.user.bot;
@@ -66,7 +61,6 @@ module.exports = {
       });
     }
 
-    // 5. Construction du contenu du fichier texte
     let fileContent = `=== RAPPORT D'INACTIVITÉ ===\n`;
     fileContent += `Serveur : ${interaction.guild.name}\n`;
     fileContent += `Date du rapport : ${new Date().toLocaleString("fr-FR")}\n`;
