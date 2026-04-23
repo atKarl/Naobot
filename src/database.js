@@ -32,7 +32,35 @@ function initDb() {
       month     INTEGER NOT NULL  -- Mois (1-12)
     );
     CREATE INDEX IF NOT EXISTS idx_birthdays_month_day ON birthdays(month, day);
+
+    -- Table historique des membres du mois
+    CREATE TABLE IF NOT EXISTS member_of_month_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      username TEXT,
+      month INTEGER NOT NULL,
+      year INTEGER NOT NULL,
+      score INTEGER NOT NULL,
+      timestamp INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_motm_date ON member_of_month_history(year, month);
+    CREATE INDEX IF NOT EXISTS idx_motm_user ON member_of_month_history(user_id);
   `);
+
+  // Insérer l'historique existant si la table est vide
+  try {
+    const historyCount = db.prepare("SELECT COUNT(*) as count FROM member_of_month_history").get();
+    if (historyCount.count === 0) {
+      db.prepare(`
+        INSERT INTO member_of_month_history (user_id, username, month, year, score, timestamp) VALUES
+        ('692790029260685489', 'Flavien', 2, 2026, 443, 1709251200000),
+        ('692790029260685489', 'Flavien', 3, 2026, 524, 1711929600000)
+      `).run();
+      console.log("Historique membre du mois initialisé.");
+    }
+  } catch (error) {
+    console.error("Erreur lors de l'initialisation de l'historique:", error);
+  }
 
   try {
     db.prepare("SELECT tracking_enabled FROM users LIMIT 1").get();
@@ -300,6 +328,133 @@ function getTodayBirthdays(day, month) {
     .all(day, month);
 }
 
+// ================================================================
+// FONCTIONS MEMBRE DU MOIS
+// ================================================================
+
+/**
+ * Sauvegarde un gagnant dans l'historique
+ */
+function saveMonthWinner(userId, username, month, year, score) {
+  const timestamp = Date.now();
+  return db
+    .prepare(
+      `
+    INSERT INTO member_of_month_history (user_id, username, month, year, score, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `,
+    )
+    .run(userId, username, month, year, score, timestamp);
+}
+
+/**
+ * Récupère les N derniers gagnants (pour calcul du malus)
+ */
+function getRecentWinners(months) {
+  return db
+    .prepare(
+      `
+    SELECT user_id, month, year, score
+    FROM member_of_month_history
+    ORDER BY year DESC, month DESC
+    LIMIT ?
+  `,
+    )
+    .all(months);
+}
+
+/**
+ * Récupère tout l'historique (pour la commande)
+ */
+function getAllWinnersHistory() {
+  return db
+    .prepare(
+      `
+    SELECT user_id, username, month, year, score, timestamp
+    FROM member_of_month_history
+    ORDER BY year DESC, month DESC
+  `,
+    )
+    .all();
+}
+
+/**
+ * Calcule le top N avec pondération (message=2, file=1, reaction=1)
+ */
+function getTopUsersWithWeights(startTs, endTs, limit = 10) {
+  return db
+    .prepare(
+      `
+    SELECT 
+      u.user_id,
+      u.username,
+      SUM(CASE 
+        WHEN l.type = 'message' THEN 2
+        WHEN l.type = 'file' THEN 1
+        WHEN l.type = 'reaction' THEN 1
+        ELSE 1
+      END) as score
+    FROM logs l
+    JOIN users u ON l.user_id = u.user_id
+    WHERE l.timestamp >= ? AND l.timestamp <= ? AND u.tracking_enabled = 1
+    GROUP BY u.user_id
+    ORDER BY score DESC
+    LIMIT ?
+  `,
+    )
+    .all(startTs, endTs, limit);
+}
+
+/**
+ * Calcule le gagnant avec malus dégressif
+ * Malus : -40% (M+1), -20% (M+2), -10% (M+3)
+ */
+function calculateWinnerWithPenalty(startTs, endTs, currentMonth, currentYear) {
+  // 1. Récupérer le top 10 avec pondération
+  const topUsers = getTopUsersWithWeights(startTs, endTs, 10);
+
+  if (topUsers.length === 0) return [];
+
+  // 2. Récupérer les 3 derniers gagnants
+  const recentWinners = getRecentWinners(3);
+
+  // 3. Créer une map des malus par user_id
+  const penaltyMap = new Map();
+  recentWinners.forEach((winner) => {
+    // Calculer combien de mois se sont écoulés
+    const monthsAgo =
+      (currentYear - winner.year) * 12 + (currentMonth - winner.month);
+
+    let penalty = 0;
+    if (monthsAgo === 1) penalty = 0.4; // -40%
+    else if (monthsAgo === 2) penalty = 0.2; // -20%
+    else if (monthsAgo === 3) penalty = 0.1; // -10%
+
+    if (penalty > 0 && !penaltyMap.has(winner.user_id)) {
+      penaltyMap.set(winner.user_id, penalty);
+    }
+  });
+
+  // 4. Appliquer les malus et calculer les scores ajustés
+  const results = topUsers.map((user) => {
+    const penalty = penaltyMap.get(user.user_id) || 0;
+    const adjustedScore = Math.floor(user.score * (1 - penalty));
+
+    return {
+      user_id: user.user_id,
+      username: user.username,
+      rawScore: user.score,
+      penalty: penalty,
+      adjustedScore: adjustedScore,
+    };
+  });
+
+  // 5. Trier par score ajusté
+  results.sort((a, b) => b.adjustedScore - a.adjustedScore);
+
+  return results;
+}
+
 module.exports = {
   initDb,
   logActivity,
@@ -319,4 +474,9 @@ module.exports = {
   getBirthday,
   getAllBirthdays,
   getTodayBirthdays,
+  saveMonthWinner,
+  getRecentWinners,
+  getAllWinnersHistory,
+  getTopUsersWithWeights,
+  calculateWinnerWithPenalty,
 };

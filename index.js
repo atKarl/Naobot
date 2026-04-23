@@ -246,16 +246,16 @@ function initCronJobs() {
 
   // Tâche 2 : Membre du Mois (1er du mois à minuit)
   cron.schedule("0 0 1 * *", async () => {
-    console.log("[CRON] Calcul Membre du Mois...");
+    console.log("[MEMBRE DU MOIS] Calcul en cours...");
     const guild = client.guilds.cache.get(config.guildId);
     if (!guild) return;
 
     const now = new Date();
-    const startOfLastMonth = new Date(
-      now.getFullYear(),
-      now.getMonth() - 1,
-      1,
-    ).getTime();
+    const lastMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+    const lastMonthYear =
+      now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+
+    const startOfLastMonth = new Date(lastMonthYear, lastMonth, 1).getTime();
     const endOfLastMonth = new Date(
       now.getFullYear(),
       now.getMonth(),
@@ -265,10 +265,52 @@ function initCronJobs() {
       59,
     ).getTime();
 
-    const winnerData = db.getTopUserByPeriod(startOfLastMonth, endOfLastMonth);
-    if (!winnerData) return console.log("Aucune activité ce mois-ci.");
+    // Calculer le top 10 avec malus
+    const candidates = db.calculateWinnerWithPenalty(
+      startOfLastMonth,
+      endOfLastMonth,
+      lastMonth + 1, // Mois 1-12
+      lastMonthYear,
+    );
+
+    if (candidates.length === 0) {
+      return console.log("[MEMBRE DU MOIS] Aucune activité ce mois-ci.");
+    }
+
+    console.log(`[MEMBRE DU MOIS] Top 3 candidats :`);
+    candidates.slice(0, 3).forEach((c, i) => {
+      const penaltyText = c.penalty > 0 ? ` (malus -${c.penalty * 100}%)` : "";
+      console.log(
+        `  ${i + 1}. ${c.username}: ${c.rawScore} pts → ${c.adjustedScore} pts${penaltyText}`,
+      );
+    });
+
+    // Trouver le premier candidat encore sur le serveur
+    let winner = null;
+    let winnerMember = null;
+
+    for (const candidate of candidates) {
+      try {
+        const member = await guild.members.fetch(candidate.user_id);
+        winner = candidate;
+        winnerMember = member;
+        console.log(`[MEMBRE DU MOIS] Gagnant trouvé : ${candidate.username}`);
+        break;
+      } catch (e) {
+        console.log(
+          `[MEMBRE DU MOIS] ${candidate.username} a quitté le serveur, passage au suivant...`,
+        );
+      }
+    }
+
+    if (!winner || !winnerMember) {
+      return console.log(
+        "[MEMBRE DU MOIS] Aucun gagnant disponible (tous ont quitté).",
+      );
+    }
 
     try {
+      // Retirer le rôle aux anciens gagnants
       const role = await guild.roles.fetch(config.roles.activeOfMonth);
       if (role) {
         for (const [, member] of role.members) {
@@ -276,31 +318,41 @@ function initCronJobs() {
         }
       }
 
-      try {
-        const winnerMember = await guild.members.fetch(winnerData.user_id);
-        await winnerMember.roles.add(config.roles.activeOfMonth);
+      // Attribuer le rôle au nouveau gagnant
+      await winnerMember.roles.add(config.roles.activeOfMonth);
 
-        const channel = guild.channels.cache.get(config.channels.announcement);
-        if (channel) {
-          const embed = new EmbedBuilder()
-            .setColor(0xe91e63)
-            .setTitle("🎉 Membre du Mois !")
-            .setDescription(
-              `Bravo <@${winnerData.user_id}> qui a été le plus actif le mois dernier !`,
-            )
-            .addFields({
-              name: "Score",
-              value: `${winnerData.score} points`,
-              inline: true,
-            })
-            .setTimestamp();
-          await channel.send({ embeds: [embed] });
-        }
-      } catch (e) {
-        console.log("Le gagnant semble avoir quitté le serveur.");
+      // Sauvegarder dans l'historique
+      db.saveMonthWinner(
+        winner.user_id,
+        winner.username,
+        lastMonth + 1,
+        lastMonthYear,
+        winner.adjustedScore,
+      );
+
+      // Envoyer l'annonce
+      const channel = guild.channels.cache.get(config.channels.announcement);
+      if (channel) {
+        const embed = new EmbedBuilder()
+          .setColor(0xe91e63)
+          .setTitle("🎉 Membre du Mois !")
+          .setDescription(
+            `Bravo <@${winner.user_id}> qui a été le plus actif le mois dernier !`,
+          )
+          .addFields({
+            name: "Score",
+            value: `${winner.adjustedScore} points`,
+            inline: true,
+          })
+          .setTimestamp();
+        await channel.send({ embeds: [embed] });
       }
+
+      console.log(
+        `[MEMBRE DU MOIS] ✅ ${winner.username} est le nouveau membre du mois !`,
+      );
     } catch (err) {
-      console.error(err);
+      console.error("[MEMBRE DU MOIS] Erreur :", err);
     }
   });
 
