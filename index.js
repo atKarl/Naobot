@@ -362,12 +362,10 @@ function initCronJobs() {
 
     const BACKUP_DIR = path.join(__dirname, "backups");
     const RETENTION_LIMIT = 5;
-    const BACKUP_CHANNEL_ID = config.channels.backups;
 
     const deleted = db.pruneLogs(365);
     console.log(`[NETTOYAGE] ${deleted} anciens logs supprimés.`);
 
-    const dbPath = path.join(__dirname, "data.db");
     const timestamp = Date.now();
     const fileName = `backup-${timestamp}.db`;
     const backupPath = path.join(BACKUP_DIR, fileName);
@@ -378,25 +376,7 @@ function initCronJobs() {
 
     try {
       await db.createBackup(backupPath);
-      console.log(`[BACKUP] ✅ Copie locale réussie : ${fileName}`);
-
-      if (!BACKUP_CHANNEL_ID || BACKUP_CHANNEL_ID === "ID_DU_SALON") {
-        console.warn("[BACKUP] ⚠️ Envoi annulé : Aucun ID de salon défini.");
-      } else {
-        const channel = await client.channels
-          .fetch(BACKUP_CHANNEL_ID)
-          .catch(() => null);
-        if (channel) {
-          const file = new AttachmentBuilder(backupPath, { name: fileName });
-          await channel.send({
-            content: `💾 **Sauvegarde Hebdomadaire**\n📅 <t:${Math.floor(timestamp / 1000)}:f>\n🧹 Logs purgés : ${deleted}`,
-            files: [file],
-          });
-          console.log("[BACKUP] 📤 Sauvegarde envoyée sur Discord.");
-        } else {
-          console.warn("[BACKUP] ⚠️ Salon de backup introuvable.");
-        }
-      }
+      console.log(`[BACKUP LOCAL] ✅ Copie réussie : ${fileName}`);
 
       const files = await fs.promises.readdir(BACKUP_DIR);
       const fileStats = await Promise.all(
@@ -415,12 +395,58 @@ function initCronJobs() {
         for (const file of toDelete) {
           await fs.promises.unlink(path.join(BACKUP_DIR, file.name));
           console.log(
-            `[BACKUP] Suppression ancienne sauvegarde : ${file.name}`,
+            `[BACKUP LOCAL] Suppression ancienne sauvegarde : ${file.name}`,
           );
         }
       }
     } catch (error) {
       console.error("[MAINTENANCE] Erreur critique :", error);
+    }
+  });
+
+  // Tâche 4 : Backup Discord Mensuel (15 du mois à 04h00)
+  cron.schedule("0 4 15 * *", async () => {
+    console.log("[BACKUP DISCORD] 🔄 Démarrage...");
+
+    const BACKUP_DIR = path.join(__dirname, "backups");
+    const BACKUP_CHANNEL_ID = config.channels.backups;
+
+    if (!BACKUP_CHANNEL_ID || BACKUP_CHANNEL_ID === "ID_DU_SALON") {
+      console.warn("[BACKUP DISCORD] ⚠️ Aucun ID de salon défini.");
+      return;
+    }
+
+    const timestamp = Date.now();
+    const fileName = `backup-${timestamp}.db`;
+    const backupPath = path.join(BACKUP_DIR, fileName);
+
+    if (!fs.existsSync(BACKUP_DIR)) {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    }
+
+    try {
+      await db.createBackup(backupPath);
+      console.log(`[BACKUP DISCORD] ✅ Fichier créé : ${fileName}`);
+
+      const channel = await client.channels
+        .fetch(BACKUP_CHANNEL_ID)
+        .catch(() => null);
+
+      if (channel) {
+        const file = new AttachmentBuilder(backupPath, { name: fileName });
+        await channel.send({
+          content: `💾 **Sauvegarde Mensuelle**\n📅 <t:${Math.floor(timestamp / 1000)}:f>`,
+          files: [file],
+        });
+        console.log("[BACKUP DISCORD] 📤 Envoyé avec succès.");
+      } else {
+        console.warn("[BACKUP DISCORD] ⚠️ Salon introuvable.");
+      }
+
+      await fs.promises.unlink(backupPath);
+      console.log("[BACKUP DISCORD] 🗑️ Fichier temporaire supprimé.");
+    } catch (error) {
+      console.error("[BACKUP DISCORD] Erreur :", error);
     }
   });
 
