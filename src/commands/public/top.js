@@ -11,7 +11,9 @@ module.exports = {
     .setDescription("Affiche le classement des 10 membres les plus actifs"),
 
   async execute(interaction) {
-    const topUsers = db.getTopUsers(10);
+    // Utiliser le système de pondération pour cohérence avec le membre du mois
+    // On récupère tous les logs depuis le début (timestamp 0 jusqu'à maintenant)
+    const topUsers = db.getTopUsersWithWeights(0, Date.now(), 10);
 
     const embed = new EmbedBuilder()
       .setColor(0xffd700)
