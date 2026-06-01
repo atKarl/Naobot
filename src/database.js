@@ -155,6 +155,40 @@ function getUserStats(userId) {
   };
 }
 
+/**
+ * Calcule le score pondéré d'un utilisateur spécifique
+ * (message=2, file=1, reaction=1)
+ */
+function getUserWeightedScore(userId) {
+  const scoreResult = db
+    .prepare(
+      `
+    SELECT 
+      SUM(CASE 
+        WHEN l.type = 'message' THEN 2
+        WHEN l.type = 'file' THEN 1
+        WHEN l.type = 'reaction' THEN 1
+        ELSE 1
+      END) as score
+    FROM logs l
+    WHERE l.user_id = ?
+  `,
+    )
+    .get(userId);
+
+  const user = db
+    .prepare(
+      "SELECT last_active_timestamp, tracking_enabled FROM users WHERE user_id = ?",
+    )
+    .get(userId);
+
+  return {
+    score: scoreResult && scoreResult.score ? scoreResult.score : 0,
+    lastActive: user ? user.last_active_timestamp : null,
+    tracking: user ? user.tracking_enabled : 1,
+  };
+}
+
 function getTopUsers(limit = 10) {
   return db
     .prepare(
@@ -457,6 +491,7 @@ module.exports = {
   updateBatch,
   setTrackingStatus,
   getUserStats,
+  getUserWeightedScore,
   getTopUsers,
   getInactiveUsers,
   getInactiveUsersList,

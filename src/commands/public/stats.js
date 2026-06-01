@@ -22,7 +22,7 @@ module.exports = {
   async execute(interaction) {
     const targetUser =
       interaction.options.getUser("target") || interaction.user;
-    const stats = db.getUserStats(targetUser.id);
+    const stats = db.getUserWeightedScore(targetUser.id);
     const isSelf = targetUser.id === interaction.user.id;
     const isOptOut = stats.tracking === 0;
 
@@ -58,7 +58,7 @@ module.exports = {
       .addFields(
         {
           name: "📊 Score d'activité",
-          value: `**${stats.count}** points`,
+          value: `**${stats.score}** points`,
           inline: true,
         },
         { name: "🕒 Dernière vue", value: lastActiveField, inline: true },
