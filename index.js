@@ -225,6 +225,23 @@ client.on(Events.GuildMemberRemove, async (member) => {
   }
 });
 
+// Détection du retrait manuel du rôle Inactif (réinitialise le cooldown de 90 jours)
+client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+  const inactiveRoleId = config.roles?.inactive;
+  if (!inactiveRoleId) return;
+
+  const hadRole = oldMember.roles.cache.has(inactiveRoleId);
+  const hasRole = newMember.roles.cache.has(inactiveRoleId);
+
+  // Détecte si le rôle vient d'être retiré
+  if (hadRole && !hasRole) {
+    db.resetUserInactivity(newMember.id, newMember.user.username);
+    console.log(
+      `[INACTIVITÉ] Rôle inactif retiré pour ${newMember.user.tag}. Cooldown de 90 jours réinitialisé.`,
+    );
+  }
+});
+
 // --- TÂCHES AUTOMATIQUES (CRON) ---
 
 function initCronJobs() {

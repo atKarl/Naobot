@@ -49,13 +49,17 @@ function initDb() {
 
   // Insérer l'historique existant si la table est vide
   try {
-    const historyCount = db.prepare("SELECT COUNT(*) as count FROM member_of_month_history").get();
+    const historyCount = db
+      .prepare("SELECT COUNT(*) as count FROM member_of_month_history")
+      .get();
     if (historyCount.count === 0) {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO member_of_month_history (user_id, username, month, year, score, timestamp) VALUES
         ('692790029260685489', 'Flavien', 2, 2026, 443, 1709251200000),
         ('692790029260685489', 'Flavien', 3, 2026, 524, 1711929600000)
-      `).run();
+      `,
+      ).run();
       console.log("Historique membre du mois initialisé.");
     }
   } catch (error) {
@@ -91,7 +95,7 @@ function logActivity(userId, username, type, cooldownMs = 60000) {
   const now = Date.now();
 
   const lastActivity = cooldownCache.get(userId);
-  if (lastActivity && (now - lastActivity < cooldownMs)) return;
+  if (lastActivity && now - lastActivity < cooldownMs) return;
 
   const userCheck = db
     .prepare("SELECT tracking_enabled FROM users WHERE user_id = ?")
@@ -463,8 +467,10 @@ function calculateWinnerWithPenalty(startTs, endTs, currentMonth, currentYear) {
       (currentYear - winner.year) * 12 + (currentMonth - winner.month);
 
     let penalty = 0;
-    if (monthsAgo === 1) penalty = 0.4; // -40%
-    else if (monthsAgo === 2) penalty = 0.2; // -20%
+    if (monthsAgo === 1)
+      penalty = 0.4; // -40%
+    else if (monthsAgo === 2)
+      penalty = 0.2; // -20%
     else if (monthsAgo === 3) penalty = 0.1; // -10%
 
     if (penalty > 0 && !penaltyMap.has(winner.user_id)) {
@@ -492,9 +498,23 @@ function calculateWinnerWithPenalty(startTs, endTs, currentMonth, currentYear) {
   return results;
 }
 
+function resetUserInactivity(userId, username) {
+  const now = Date.now();
+  db.prepare(
+    `
+    INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
+    VALUES (?, ?, ?, 1)
+    ON CONFLICT(user_id) DO UPDATE SET
+      last_active_timestamp = excluded.last_active_timestamp,
+      username = excluded.username
+  `,
+  ).run(userId, username || "Inconnu", now);
+}
+
 module.exports = {
   initDb,
   logActivity,
+  resetUserInactivity,
   updateBatch,
   setTrackingStatus,
   getUserStats,
