@@ -12,6 +12,11 @@ const {
   MessageFlags,
 } = require("discord.js");
 const cron = require("node-cron");
+const {
+  handleNewSortieThread,
+  handleSortieButton,
+  handleSortieModalSubmit,
+} = require("./src/utils/sorties");
 
 // Validation de la configuration
 let config;
@@ -128,8 +133,22 @@ client.once(Events.ClientReady, (c) => {
   }, 3000);
 });
 
-// Gestion des interactions (Commandes Slash)
+// Gestion des interactions (Commandes Slash, Boutons, Modals)
 client.on(Events.InteractionCreate, async (interaction) => {
+  // 1. Boutons du module Sorties
+  if (interaction.isButton() && interaction.customId.startsWith("sortie_")) {
+    return handleSortieButton(interaction);
+  }
+
+  // 2. Modals du module Sorties
+  if (
+    interaction.isModalSubmit() &&
+    interaction.customId.startsWith("modal_sortie_")
+  ) {
+    return handleSortieModalSubmit(interaction);
+  }
+
+  // 3. Commandes Slash
   if (!interaction.isChatInputCommand()) return;
   const command = client.commands.get(interaction.commandName);
   if (!command) return;
@@ -239,6 +258,18 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
     console.log(
       `[INACTIVITÉ] Rôle inactif retiré pour ${newMember.user.tag}. Cooldown de 90 jours réinitialisé.`,
     );
+  }
+});
+
+// Détection des nouvelles sorties dans le salon Forum
+client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
+  // On vérifie que le thread est bien dans le salon forum des sorties
+  if (
+    config.channels?.sortiesForum &&
+    thread.parentId === config.channels.sortiesForum
+  ) {
+    // Petit délai de 1 sec pour s'assurer que Discord a bien finalisé la création du fil
+    setTimeout(() => handleNewSortieThread(thread), 1000);
   }
 });
 
