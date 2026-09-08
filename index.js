@@ -17,10 +17,12 @@ const cron = require("node-cron");
 let config;
 try {
   config = require("./config.json");
-  
+
   // Vérification des champs essentiels
   if (!config.token || config.token === "TOKEN_ICI") {
-    console.error("❌ Erreur Config : Le token Discord est manquant ou invalide");
+    console.error(
+      "❌ Erreur Config : Le token Discord est manquant ou invalide",
+    );
     process.exit(1);
   }
   if (!config.guildId || config.guildId === "ID_DU_SERVEUR") {
@@ -31,17 +33,35 @@ try {
     console.error("❌ Erreur Config : Le clientId est manquant ou invalide");
     process.exit(1);
   }
-  
+
   console.log("✅ Configuration chargée et validée");
 } catch (error) {
   console.error("❌ Erreur lors du chargement de config.json :", error.message);
-  console.error("💡 Assurez-vous que config.json existe et est valide (voir config.json.example)");
+  console.error(
+    "💡 Assurez-vous que config.json existe et est valide (voir config.json.example)",
+  );
   process.exit(1);
 }
 
 const db = require("./src/database");
 
 db.initDb();
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("❌ [ANTI-CRASH] Promesse non gérée (unhandledRejection) :");
+  console.error(reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error(
+    "❌ [ANTI-CRASH] Exception non interceptée (uncaughtException) :",
+  );
+  console.error(error);
+});
+
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  console.error("❌ [ANTI-CRASH] Exception surveillée :", error, origin);
+});
 
 const client = new Client({
   intents: [
@@ -74,6 +94,10 @@ for (const folder of commandFolders) {
 }
 
 // --- ÉVÉNEMENTS DISCORD ---
+
+client.on(Events.Error, (error) => {
+  console.error("❌ [DISCORD ERROR] Erreur de passerelle / client :", error);
+});
 
 client.once(Events.ClientReady, (c) => {
   console.log(`✅ Prêt ! Connecté en tant que ${c.user.tag}`);
