@@ -451,7 +451,7 @@ function initCronJobs() {
   });
 
   // ----------------------------------------------------------------
-  // Tâche 4 : Annonces d'Anniversaires — Tous les jours à 09h00
+  // Tâche 5 : Annonces d'Anniversaires — Tous les jours à 09h00
   // ----------------------------------------------------------------
   cron.schedule(
     "0 9 * * *",

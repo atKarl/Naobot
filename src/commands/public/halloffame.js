@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require("discord.js");
 const db = require("../../database");
 
 const MONTH_NAMES = [
@@ -27,7 +27,7 @@ module.exports = {
     if (history.length === 0) {
       return interaction.reply({
         content: "📊 Aucun historique disponible pour le moment.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 

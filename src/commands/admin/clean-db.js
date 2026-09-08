@@ -1,6 +1,6 @@
 const {
   SlashCommandBuilder,
-  PermissionsBitField,
+  PermissionFlagsBits,
   MessageFlags,
 } = require("discord.js");
 const db = require("../../database");
@@ -11,12 +11,12 @@ module.exports = {
     .setDescription(
       "ADMIN: Supprime de la DB les membres qui ont quitté le serveur (Nettoyage Fantômes)",
     )
-    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
     // Sécurité : Admin seulement
     if (
-      !interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)
+      !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)
     ) {
       return interaction.reply({
         content: "⛔ Réservé au staff.",

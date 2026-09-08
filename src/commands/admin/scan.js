@@ -1,6 +1,6 @@
 const {
   SlashCommandBuilder,
-  PermissionsBitField,
+  PermissionFlagsBits,
   MessageFlags,
   ChannelType,
 } = require("discord.js");
@@ -18,11 +18,11 @@ module.exports = {
         .setMinValue(1)
         .setMaxValue(365),
     )
-    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
     if (
-      !interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)
+      !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)
     ) {
       return interaction.reply({
         content: "⛔ Réservé aux membres du staff.",
@@ -87,13 +87,11 @@ module.exports = {
       // Boucle de pagination des messages
       while (keepScanning) {
         try {
-          // Pagination par paquets de 100 messages
           const options = { limit: 100 };
           if (lastMessageId) options.before = lastMessageId;
 
           const messages = await channel.messages.fetch(options);
 
-          // Si plus de messages, on passe au salon suivant
           if (messages.size === 0) {
             keepScanning = false;
             break;
@@ -102,7 +100,6 @@ module.exports = {
           const batchData = [];
 
           for (const msg of messages.values()) {
-            // Si le message est plus vieux que la date limite, on arrête le scan de ce salon
             if (msg.createdTimestamp < limitDate) {
               keepScanning = false;
               break;
@@ -119,20 +116,17 @@ module.exports = {
             totalMessages++;
           }
 
-          // Écriture groupée en base de données
           if (batchData.length > 0) {
             db.updateBatch(batchData);
           }
 
           lastMessageId = messages.last().id;
 
-          // Pause pour éviter le Rate Limit de l'API Discord
           await sleep(600);
         } catch (err) {
           console.error(
             `[SCAN] Erreur critique sur le salon ${channel.name}: ${err.message}`,
           );
-          // SÉCURITÉ : On arrête de scanner ce salon pour éviter une boucle infinie en cas d'erreur API
           keepScanning = false;
           break;
         }
@@ -140,7 +134,6 @@ module.exports = {
 
       channelsProcessed++;
 
-      // Mise à jour du statut visuel tous les 5 salons
       if (channelsProcessed % 5 === 0) {
         await interaction.editReply(
           `🔄 **Scan en cours...**\n📊 Progression : ${channelsProcessed}/${allChannels.size} salons.\n📨 Messages indexés : ${totalMessages}`,

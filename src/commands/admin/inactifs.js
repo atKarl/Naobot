@@ -1,6 +1,6 @@
 const {
   SlashCommandBuilder,
-  PermissionsBitField,
+  PermissionFlagsBits,
   MessageFlags,
   AttachmentBuilder,
 } = require("discord.js");
@@ -16,11 +16,11 @@ module.exports = {
         .setDescription("Nombre de jours sans activité")
         .setRequired(true),
     )
-    .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild),
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
     if (
-      !interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)
+      !interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)
     ) {
       return interaction.reply({
         content: "⛔ Réservé aux membres du staff.",
@@ -75,7 +75,6 @@ module.exports = {
       if (!member) return; // Sécurité si le membre vient de partir
 
       const globalUsername = member.user.username; 
-      
       const serverName = member.displayName; 
 
       const formattedName = (serverName.toLowerCase() !== globalUsername.toLowerCase())
