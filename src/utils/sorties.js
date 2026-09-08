@@ -29,13 +29,14 @@ async function handleNewSortieThread(thread) {
     );
 
     await thread.send({
-      content:
-        `👋 Salut <@${thread.ownerId}> ! Super initiative pour cette sortie.\n` +
-        `Souhaites-tu **l'inscrire au calendrier officiel** du serveur ? Les membres intéressés pourront s'y inscrire et recevoir une notification avant l'événement !`,
+      content: `👋 Salut <@${thread.ownerId}> Souhaites-tu **l'inscrire au calendrier officiel** du serveur ? Les membres intéressés pourront s'y inscrire et recevoir une notification avant l'événement !`,
       components: [row],
     });
   } catch (error) {
-    console.error("[SORTIES] Erreur lors de l'envoi du message d'assistance :", error);
+    console.error(
+      "[SORTIES] Erreur lors de l'envoi du message d'assistance :",
+      error,
+    );
   }
 }
 
@@ -54,7 +55,8 @@ async function handleSortieButton(interaction) {
 
   if (!isAuthor && !isStaff) {
     return interaction.reply({
-      content: "⛔ Seul l'organisateur de cette sortie ou un modérateur peut planifier cet événement.",
+      content:
+        "⛔ Seul l'organisateur de cette sortie ou un modérateur peut planifier cet événement.",
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -85,8 +87,8 @@ async function handleSortieButton(interaction) {
       .setCustomId("date")
       .setLabel("Date et heure de début")
       .setStyle(TextInputStyle.Short)
-      .setPlaceholder("JJ/MM/AAAA HH:mm (ex: 25/09 19:30)")
-      .setMaxLength(20)
+      .setPlaceholder("ex: 25/09 20h30 ou 25/09 à 20h")
+      .setMaxLength(25)
       .setRequired(true);
 
     const durationInput = new TextInputBuilder()
@@ -117,25 +119,43 @@ async function handleSortieButton(interaction) {
   }
 }
 
-/**
- * Analyse une saisie de date en français (ex: "25/09 19:30" ou "25/09/2026 20h00")
- */
 function parseFrenchDate(dateStr) {
-  const match = dateStr.trim().match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?\s+(\d{1,2})[h:](\d{2})$/i);
+  const cleaned = dateStr.trim();
+
+  // Regex permissive :
+  // - Jour et mois séparés par /, - ou .
+  // - Année optionnelle (ex: /2026)
+  // - Liaison optionnelle (espace, "à", "-", "@")
+  // - Heure avec minutes optionnelles (ex: "20h", "20h30", "20:30")
+  const regex =
+    /^(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{4}))?\s*(?:à|-|@)?\s*(\d{1,2})(?:[h:H](\d{1,2})?|h)?$/i;
+  const match = cleaned.match(regex);
   if (!match) return null;
 
   const day = parseInt(match[1], 10);
   const month = parseInt(match[2], 10) - 1; // 0-11 en JS
-  const year = match[3] ? parseInt(match[3], 10) : new Date().getFullYear();
+  let year = match[3] ? parseInt(match[3], 10) : new Date().getFullYear();
   const hours = parseInt(match[4], 10);
-  const minutes = parseInt(match[5], 10);
+  // Si les minutes ne sont pas spécifiées (ex: "20h"), on met 0 minute
+  const minutes = match[5] ? parseInt(match[5], 10) : 0;
 
-  const parsedDate = new Date(year, month, day, hours, minutes, 0);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return null;
+  }
 
-  // Vérification de validité de la date (ex: éviter le 31 février)
+  let parsedDate = new Date(year, month, day, hours, minutes, 0);
+
+  // Bonus UX : Si l'utilisateur n'a pas mis l'année et que la date est déjà passée
+  // (ex: on est en décembre et il planifie pour le 10 janvier), on bascule sur l'année suivante
+  if (!match[3] && parsedDate.getTime() <= Date.now()) {
+    parsedDate.setFullYear(year + 1);
+  }
+
+  // Vérification de validité (ex: éviter le 31 février)
   if (
     parsedDate.getDate() !== day ||
-    parsedDate.getMonth() !== month ||
+    parsedDate.getMonth() !==
+      (month === 11 && parsedDate.getFullYear() > year ? 0 : month) ||
     isNaN(parsedDate.getTime())
   ) {
     return null;
@@ -162,21 +182,27 @@ async function handleSortieModalSubmit(interaction) {
   const startDate = parseFrenchDate(dateStr);
   if (!startDate) {
     return interaction.editReply(
-      "❌ **Format de date invalide !**\nMerci d'utiliser le format : `JJ/MM HH:mm` (ex: `25/09 19:30` ou `25/09/2026 20h00`).",
+      "❌ **Format de date invalide !**\nExemples acceptés :\n• `25/09 20h30`\n• `25/09 à 20h`\n• `25/09/2026 19:30`",
     );
   }
 
   if (startDate.getTime() <= Date.now()) {
-    return interaction.editReply("❌ **La date et l'heure doivent se situer dans le futur !**");
+    return interaction.editReply(
+      "❌ **La date et l'heure doivent se situer dans le futur !**",
+    );
   }
 
   // 2. Validation de la durée
   const durationHours = parseFloat(durationStr.replace(",", "."));
   if (isNaN(durationHours) || durationHours <= 0 || durationHours > 72) {
-    return interaction.editReply("❌ **Durée invalide !** Indiquez un nombre d'heures (ex: `2` ou `3.5`).");
+    return interaction.editReply(
+      "❌ **Durée invalide !** Indiquez un nombre d'heures (ex: `2` ou `3.5`).",
+    );
   }
 
-  const endDate = new Date(startDate.getTime() + durationHours * 60 * 60 * 1000);
+  const endDate = new Date(
+    startDate.getTime() + durationHours * 60 * 60 * 1000,
+  );
 
   // 3. Création de l'événement Discord
   try {
@@ -201,11 +227,15 @@ async function handleSortieModalSubmit(interaction) {
         .setTitle("📅 Sortie ajoutée au calendrier !")
         .setDescription(
           `L'événement **[${scheduledEvent.name}](${scheduledEvent.url})** est planifié !\n` +
-          `Retrouvez-le dans la section **Événements** en haut du serveur.`
+            `Retrouvez-le dans la section **Événements** en haut du serveur.`,
         )
         .addFields(
-          { name: "🕒 Date & Heure", value: `<t:${Math.floor(startDate.getTime() / 1000)}:F>`, inline: true },
-          { name: "📍 Lieu", value: location, inline: true }
+          {
+            name: "🕒 Date & Heure",
+            value: `<t:${Math.floor(startDate.getTime() / 1000)}:F>`,
+            inline: true,
+          },
+          { name: "📍 Lieu", value: location, inline: true },
         )
         .setFooter({ text: "NaoBot • Événements communautaires" })
         .setTimestamp();
