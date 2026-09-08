@@ -77,13 +77,21 @@ function initDb() {
   console.log("Base de données chargée.");
 }
 
+// Nettoyage automatique du cache 1 fois par heure (supprime les utilisateurs inactifs depuis plus d'une heure)
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, timestamp] of cooldownCache.entries()) {
+    if (now - timestamp > 3600000) {
+      cooldownCache.delete(userId);
+    }
+  }
+}, 3600000).unref();
+
 function logActivity(userId, username, type, cooldownMs = 60000) {
   const now = Date.now();
 
-  if (cooldownCache.has(userId)) {
-    const lastTime = cooldownCache.get(userId);
-    if (now - lastTime < cooldownMs) return;
-  }
+  const lastActivity = cooldownCache.get(userId);
+  if (lastActivity && (now - lastActivity < cooldownMs)) return;
 
   const userCheck = db
     .prepare("SELECT tracking_enabled FROM users WHERE user_id = ?")
@@ -108,8 +116,7 @@ function logActivity(userId, username, type, cooldownMs = 60000) {
 
   try {
     logTransaction();
-    cooldownCache.set(userId, now);
-    setTimeout(() => cooldownCache.delete(userId), cooldownMs);
+    cooldownCache.set(userId, now); // Enregistre simplement le timestamp
   } catch (err) {
     console.error("Erreur écriture DB:", err);
   }
