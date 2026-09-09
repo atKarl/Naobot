@@ -5,7 +5,6 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  EmbedBuilder,
   GuildScheduledEventPrivacyLevel,
   GuildScheduledEventEntityType,
   PermissionFlagsBits,
@@ -314,29 +313,12 @@ async function handleSortieModalSubmit(interaction) {
 
     // 4. Métamorphose du message dans le fil
     if (interaction.message) {
-      const confirmEmbed = new EmbedBuilder()
-        .setColor(0x57f287)
-        .setTitle("📅 Sortie ajoutée au calendrier officiel !")
-        .setDescription(
-          `L'événement **[${scheduledEvent.name}](${scheduledEvent.url})** a été créé !`,
-        )
-        .addFields(
-          {
-            name: "🕒 Date & Heure",
-            value: `<t:${Math.floor(startDate.getTime() / 1000)}:F>`,
-            inline: true,
-          },
-          { name: "📍 Lieu", value: location, inline: true },
-        )
-        .setFooter({ text: "NaoBot • Événements communautaires" })
-        .setTimestamp();
-
-      await interaction.message.edit({
-        content: null,
-        embeds: [confirmEmbed],
-        components: [],
-      });
+      await interaction.message.delete().catch(() => {});
     }
+
+    await interaction.editReply({
+      content: `✅ **C'est tout bon !** L'événement a été créé et ajouté au calendrier officiel : [Voir l'événement](${scheduledEvent.url})`,
+    });
 
     await interaction.editReply({
       content: `✅ **C'est tout bon !** L'événement est planifié à la bonne heure : [Voir l'événement](${scheduledEvent.url})`,
