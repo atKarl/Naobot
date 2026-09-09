@@ -318,8 +318,7 @@ async function handleSortieModalSubmit(interaction) {
         .setColor(0x57f287)
         .setTitle("📅 Sortie ajoutée au calendrier officiel !")
         .setDescription(
-          `L'événement **[${scheduledEvent.name}](${scheduledEvent.url})** a été créé !\n` +
-            `Retrouvez-le dans la section **Événements** en haut du serveur pour indiquer votre présence.`,
+          `L'événement **[${scheduledEvent.name}](${scheduledEvent.url})** a été créé !`,
         )
         .addFields(
           {
