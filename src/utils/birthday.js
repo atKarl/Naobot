@@ -46,7 +46,11 @@ async function buildBirthdayChunks(guild) {
     }
 
     const member = guild.members.cache.get(entry.user_id);
-    const nameDisplay = member ? `<@${entry.user_id}>` : entry.username;
+    const rawName = member ? member.displayName : entry.username;
+
+    const safeName = rawName.replace(/[[\]]/g, "");
+
+    const nameDisplay = `[**${safeName}**](https://discord.com/users/${entry.user_id})`;
 
     lines.push(
       `* ${String(entry.day).padStart(2, "0")}/${String(entry.month).padStart(2, "0")} — ${nameDisplay}`,
