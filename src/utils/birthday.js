@@ -1,7 +1,7 @@
 const db = require("../database");
 const path = require("path");
-
 const config = require("../../config.json");
+const { MessageFlags } = require("discord.js");
 
 const MONTH_NAMES_CAP = [
   "",
@@ -49,8 +49,7 @@ async function buildBirthdayChunks(guild) {
     const rawName = member ? member.displayName : entry.username;
 
     const safeName = rawName.replace(/[[\]]/g, "");
-
-    const nameDisplay = `[**${safeName}**](https://discord.com/users/${entry.user_id})`;
+    const nameDisplay = `[**${safeName}**](<https://discord.com/users/${entry.user_id}>)`;
 
     lines.push(
       `* ${String(entry.day).padStart(2, "0")}/${String(entry.month).padStart(2, "0")} — ${nameDisplay}`,
@@ -89,7 +88,10 @@ async function refreshBirthdayMessage(guild) {
   }
 
   const chunks = await buildBirthdayChunks(guild);
-  const silenceOptions = { allowedMentions: { parse: [] } };
+  const silenceOptions = {
+    allowedMentions: { parse: [] },
+    flags: [MessageFlags.SuppressEmbeds],
+  };
   const messages = await channel.messages.fetch({ limit: 10 });
 
   const botMessages = Array.from(
@@ -104,8 +106,8 @@ async function refreshBirthdayMessage(guild) {
 
   for (let i = 0; i < chunks.length; i++) {
     if (botMessages[i])
-      await botMessages[i].edit({ content: chunks[i], ...silenceOptions });
-    else await channel.send({ content: chunks[i], ...silenceOptions });
+      await botMessages[i].edit({ content: chunks[i], ...messageOptions });
+    else await channel.send({ content: chunks[i], ...messageOptions });
   }
 
   for (let i = chunks.length; i < botMessages.length; i++) {
