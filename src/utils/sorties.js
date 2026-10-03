@@ -116,7 +116,6 @@ async function handleSortieButton(interaction) {
       .setMaxLength(100)
       .setRequired(true);
 
-    // Discord autorise exactement 5 lignes (ActionRows) par Modal
     modal.addComponents(
       new ActionRowBuilder().addComponents(titleInput),
       new ActionRowBuilder().addComponents(dateInput),
@@ -222,21 +221,22 @@ function parseTimeInput(timeStr) {
 }
 
 /**
- * Crée un objet Date UTC correspondant exactement à l'heure locale de Paris
- * (Résout le bug des +2h sur les serveurs distants)
+ * Calcule l'heure UTC exacte correspondant à l'heure locale de Paris (gère été/hiver)
+ * sans risque de générer une Date invalide.
  */
 function createDateInParisTime(day, month, year, hours, minutes) {
-  const pad = (n) => String(n).padStart(2, "0");
-  const isoNaive = `${year}-${pad(month + 1)}-${pad(day)}T${pad(hours)}:${pad(minutes)}:00`;
+  const utcTimestamp = Date.UTC(year, month, day, hours, minutes, 0);
+  const testDate = new Date(utcTimestamp);
 
-  const tempUtc = new Date(`${isoNaive}Z`);
-  const parisString = tempUtc.toLocaleString("en-US", {
+  const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "Europe/Paris",
+    hour: "numeric",
+    hour12: false,
   });
-  const parisParsed = new Date(parisString);
-  const offsetMs = tempUtc.getTime() - parisParsed.getTime();
+  const parisHour = parseInt(formatter.format(testDate), 10);
+  const offsetHours = (parisHour - hours + 24) % 24;
 
-  return new Date(tempUtc.getTime() + offsetMs);
+  return new Date(utcTimestamp - offsetHours * 3600000);
 }
 
 /**
@@ -277,6 +277,13 @@ async function handleSortieModalSubmit(interaction) {
     timeInfo.minutes,
   );
 
+  // Sécurité anti-crash
+  if (isNaN(startDate.getTime())) {
+    return interaction.editReply(
+      "❌ **Erreur d'analyse de la date.** Vérifiez votre saisie.",
+    );
+  }
+
   if (startDate.getTime() <= Date.now()) {
     return interaction.editReply(
       "❌ **La sortie doit être programmée dans le futur !**",
@@ -311,17 +318,13 @@ async function handleSortieModalSubmit(interaction) {
       description: `🎉 Sortie proposée par <@${interaction.user.id}>\n\n🔗 **Lien du sujet pour s'organiser :**\n${eventUrl}`,
     });
 
-    // 4. Métamorphose du message dans le fil
+    // 4. Nettoyage du message d'invitation initial
     if (interaction.message) {
       await interaction.message.delete().catch(() => {});
     }
 
     await interaction.editReply({
-      content: `✅ **C'est tout bon !** L'événement a été créé et ajouté au calendrier officiel : [Voir l'événement](${scheduledEvent.url})`,
-    });
-
-    await interaction.editReply({
-      content: `✅ **C'est tout bon !** L'événement est planifié à la bonne heure : [Voir l'événement](${scheduledEvent.url})`,
+      content: `✅ **C'est tout bon !** L'événement est planifié au calendrier officiel : [Voir l'événement](${scheduledEvent.url})`,
     });
   } catch (err) {
     console.error("[SORTIES] Erreur lors de la création de l'événement :", err);

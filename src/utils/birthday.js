@@ -29,10 +29,16 @@ async function buildBirthdayChunks(guild) {
   const all = db.getAllBirthdays();
   if (all.length === 0) return [];
 
+  // Récupère uniquement les membres manquants dans le cache (évite le rate-limit Gateway Opcode 8)
   try {
-    await guild.members.fetch({ force: false });
+    const missingIds = all
+      .map((entry) => entry.user_id)
+      .filter((id) => !guild.members.cache.has(id));
+    if (missingIds.length > 0) {
+      await guild.members.fetch({ user: missingIds });
+    }
   } catch (err) {
-    console.warn("[ANNIVERSAIRES] Erreur fetch membres:", err.message);
+    console.warn("[ANNIVERSAIRES] Erreur fetch membres ciblés :", err.message);
   }
 
   const lines = [];
@@ -48,11 +54,12 @@ async function buildBirthdayChunks(guild) {
     const member = guild.members.cache.get(entry.user_id);
     const rawName = member ? member.displayName : entry.username;
 
-    const safeName = rawName.replace(/[[\]]/g, "");
-    const nameDisplay = `[**${safeName}**](<https://discord.com/users/${entry.user_id}>)`;
+    // Supprime les crochets et parenthèses qui cassent la syntaxe markdown sur mobile
+    const safeName = rawName.replace(/[[\]()]/g, "").trim();
+    const nameDisplay = `**[${safeName}](https://discord.com/users/${entry.user_id})**`;
 
     lines.push(
-      `* ${String(entry.day).padStart(2, "0")}/${String(entry.month).padStart(2, "0")} — ${nameDisplay}`,
+      `• ${String(entry.day).padStart(2, "0")}/${String(entry.month).padStart(2, "0")} — ${nameDisplay}`,
     );
   }
 
@@ -88,7 +95,7 @@ async function refreshBirthdayMessage(guild) {
   }
 
   const chunks = await buildBirthdayChunks(guild);
-  const silenceOptions = {
+  const messageOptions = {
     allowedMentions: { parse: [] },
     flags: [MessageFlags.SuppressEmbeds],
   };
