@@ -113,7 +113,7 @@ module.exports = {
       )
       .addFields(
         {
-          name: "🕒 Dernière vue globale (anti-inactivité)",
+          name: "⏳ Dernière activité retenue (compteur 90 jours)",
           value: formatTimestamp(
             details.lastActive,
             "*Jamais enregistrée*",
@@ -132,12 +132,8 @@ module.exports = {
           value: reactionsList,
         },
       )
-      .setFooter({
-        text: `Demandé par ${interaction.user.username} • Cooldown de log : ${config.cooldown / 1000}s`,
-      })
       .setTimestamp();
 
-    // Réponse visible par tous les modérateurs présents dans le salon
     await interaction.reply({ embeds: [embed] });
   },
 };
