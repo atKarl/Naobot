@@ -11,6 +11,7 @@ Politique de Confidentialité - NaoBot
    Calculer les statistiques d'activité (commande /stats et /top).
    Identifier le "Membre du Mois".
    Gérer l'attribution automatique du rôle "Inactif" après 90 jours.
+   Permettre à l'équipe de modération de consulter la date de dernière activité d'un membre.
 3. Conservation des données
    Les logs d'activité sont automatiquement supprimés après 365 jours.
    Les données de profil (ID et pseudonyme) sont conservées tant que l'utilisateur est présent sur le serveur.

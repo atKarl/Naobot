@@ -511,6 +511,57 @@ function resetUserInactivity(userId, username) {
   ).run(userId, username || "Inconnu", now);
 }
 
+function getUserActivityDetails(userId, reactionLimit = 5) {
+  const user = db
+    .prepare(
+      "SELECT last_active_timestamp, tracking_enabled FROM users WHERE user_id = ?",
+    )
+    .get(userId);
+
+  const byTypeRows = db
+    .prepare(
+      `
+      SELECT type, MAX(timestamp) as last_ts
+      FROM logs
+      WHERE user_id = ?
+      GROUP BY type
+    `,
+    )
+    .all(userId);
+
+  const lastByType = {
+    message: null,
+    file: null,
+    reaction: null,
+  };
+
+  for (const row of byTypeRows) {
+    if (row.type in lastByType) {
+      lastByType[row.type] = row.last_ts;
+    }
+  }
+
+  const recentReactions = db
+    .prepare(
+      `
+      SELECT timestamp
+      FROM logs
+      WHERE user_id = ? AND type = 'reaction'
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `,
+    )
+    .all(userId, reactionLimit)
+    .map((r) => r.timestamp);
+
+  return {
+    lastActive: user ? user.last_active_timestamp : null,
+    tracking: user ? user.tracking_enabled : 1,
+    lastByType,
+    recentReactions,
+  };
+}
+
 module.exports = {
   initDb,
   logActivity,
@@ -537,4 +588,5 @@ module.exports = {
   getAllWinnersHistory,
   getTopUsersWithWeights,
   calculateWinnerWithPenalty,
+  getUserActivityDetails,
 };
