@@ -2,10 +2,10 @@
   "name": "naobot",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
-    "start": "node index.js",
-    "deploy": "node deploy-commands.js",
+    "start": "node index.ts",
+    "deploy": "node deploy-commands.ts",
     "typecheck": "tsc --noEmit",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

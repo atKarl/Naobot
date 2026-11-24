@@ -25,6 +25,8 @@ Un bot Discord fait maison pour animer notre serveur, suivre l'activité des mem
 
 ### 2. Setup Technique
 
+**Prérequis** : **Node.js ≥ 24** (exécution native de TypeScript sans étape de build).
+
 ```bash
 git clone https://github.com/atKarl/Naobot
 cd naobot
@@ -37,16 +39,26 @@ cp config.json.example config.json
 Renommez `config.json.example` en `config.json` et remplissez-le avec vos IDs (Token, GuildID, Rôles, Salons...), puis exécutez :
 
 ```bash
-npm run deploy  # Enregistre les commandes (/)
+npm run typecheck # Vérifie les types TypeScript (tsc --noEmit)
 
-npm start       # Lance le bot (ou pm2 start index.js en production)
+npm run deploy    # Enregistre les commandes (/) via node deploy-commands.ts
+
+npm start         # Lance le bot via node index.ts
+```
+
+En production avec PM2 :
+
+```bash
+pm2 start index.ts --interpreter node --name naobot
+# En cas de mise à jour depuis une ancienne installation JS :
+# pm2 delete naobot && pm2 start index.ts --interpreter node --name naobot && pm2 save
 ```
 
 ⚠️ Note importante : Dans les paramètres de votre serveur Discord, placez le rôle du bot tout en haut de la liste (au-dessus des rôles "Inactif" et "Membre du Mois") pour qu'il puisse les gérer sans erreur de permission.
 
 ## 🛠️ Stack Technique
 
-- **Langage** : JavaScript (Node.js)
+- **Langage** : TypeScript (Node.js ≥ 24, exécution native sans build)
 - **Librairie** : Discord.js v14
 - **Base de données** : SQLite (via better-sqlite3)
 - **Planification** : Node-cron

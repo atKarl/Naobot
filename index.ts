@@ -1,61 +1,39 @@
-const fs = require("node:fs");
-const path = require("node:path");
-const {
+import fs from "node:fs";
+import path from "node:path";
+import {
   Client,
   GatewayIntentBits,
   Events,
-  Collection,
   EmbedBuilder,
   Partials,
   AttachmentBuilder,
   ActivityType,
   MessageFlags,
-} = require("discord.js");
-const cron = require("node-cron");
-const {
+} from "discord.js";
+import type { GuildMember } from "discord.js";
+import cron from "node-cron";
+import type { TaskOptions } from "node-cron";
+import { config } from "./src/config.ts";
+import * as db from "./src/database.ts";
+import { loadCommands } from "./src/commands/loader.ts";
+import { refreshBirthdayMessage } from "./src/utils/birthday.ts";
+import {
   handleNewSortieThread,
   handleSortieButton,
   handleSortieModalSubmit,
   createDateInParisTime,
-} = require("./src/utils/sorties");
+} from "./src/utils/sorties.ts";
+import type { WinnerCandidate } from "./src/types.ts";
 
-// Validation de la configuration
-let config;
-try {
-  config = require("./config.json");
-
-  // Vérification des champs essentiels
-  if (!config.token || config.token === "TOKEN_ICI") {
-    console.error(
-      "❌ Erreur Config : Le token Discord est manquant ou invalide",
-    );
-    process.exit(1);
-  }
-  if (!config.guildId || config.guildId === "ID_DU_SERVEUR") {
-    console.error("❌ Erreur Config : Le guildId est manquant ou invalide");
-    process.exit(1);
-  }
-  if (!config.clientId || config.clientId === "ID_DU_BOT") {
-    console.error("❌ Erreur Config : Le clientId est manquant ou invalide");
-    process.exit(1);
-  }
-
-  console.log("✅ Configuration chargée et validée");
-} catch (error) {
-  console.error("❌ Erreur lors du chargement de config.json :", error.message);
-  console.error(
-    "💡 Assurez-vous que config.json existe et est valide (voir config.json.example)",
-  );
-  process.exit(1);
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
-const INACTIVITY_DAYS = config.inactivityDays ?? 90;
-
-const db = require("./src/database");
+const INACTIVITY_DAYS = config.inactivityDays;
 
 db.initDb();
 
-process.on("unhandledRejection", (reason, promise) => {
+process.on("unhandledRejection", (reason) => {
   console.error("❌ [ANTI-CRASH] Promesse non gérée (unhandledRejection) :");
   console.error(reason);
 });
@@ -77,7 +55,7 @@ const client = new Client({
 
 let isShuttingDown = false;
 
-async function shutdown(signal, exitCode = 0) {
+async function shutdown(signal: string, exitCode = 0): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log(`🛑 Arrêt du bot (${signal})...`);
@@ -104,34 +82,22 @@ async function shutdown(signal, exitCode = 0) {
   }
 }
 
-process.on("SIGINT", () => shutdown("SIGINT", 0));
-process.on("SIGTERM", () => shutdown("SIGTERM", 0));
+process.on("SIGINT", () => {
+  void shutdown("SIGINT", 0);
+});
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM", 0);
+});
 process.on("uncaughtException", (error) => {
   console.error(
     "❌ [ANTI-CRASH] Exception non interceptée (uncaughtException) :",
   );
   console.error(error);
-  shutdown("uncaughtException", 1);
+  void shutdown("uncaughtException", 1);
 });
 
 // --- CHARGEMENT DES COMMANDES ---
-client.commands = new Collection();
-const foldersPath = path.join(__dirname, "src/commands");
-const commandFolders = fs.readdirSync(foldersPath);
-
-for (const folder of commandFolders) {
-  const commandsPath = path.join(foldersPath, folder);
-  const commandFiles = fs
-    .readdirSync(commandsPath)
-    .filter((file) => file.endsWith(".js"));
-  for (const file of commandFiles) {
-    const filePath = path.join(commandsPath, file);
-    const command = require(filePath);
-    if ("data" in command && "execute" in command) {
-      client.commands.set(command.data.name, command);
-    }
-  }
-}
+const commands = await loadCommands();
 
 // --- ÉVÉNEMENTS DISCORD ---
 
@@ -154,14 +120,13 @@ client.once(Events.ClientReady, async (c) => {
   try {
     const guild = c.guilds.cache.get(config.guildId);
     if (guild) {
-      const { refreshBirthdayMessage } = require("./src/utils/birthday");
       await refreshBirthdayMessage(guild);
       console.log(
         "[ANNIVERSAIRES] ✅ Liste persistante rafraîchie au démarrage.",
       );
     }
   } catch (err) {
-    console.error("[ANNIVERSAIRES] Erreur au démarrage :", err.message);
+    console.error("[ANNIVERSAIRES] Erreur au démarrage :", getErrorMessage(err));
   }
 });
 
@@ -170,7 +135,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   const errPayload = {
     content: "Une erreur interne est survenue.",
     flags: MessageFlags.Ephemeral,
-  };
+  } as const;
 
   // 1. Boutons du module Sorties
   if (interaction.isButton() && interaction.customId.startsWith("sortie_")) {
@@ -183,7 +148,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         else if (interaction.deferred)
           await interaction.editReply({ content: errPayload.content });
         else await interaction.reply(errPayload);
-      } catch (_) {}
+      } catch {}
     }
     return;
   }
@@ -202,14 +167,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         else if (interaction.deferred)
           await interaction.editReply({ content: errPayload.content });
         else await interaction.reply(errPayload);
-      } catch (_) {}
+      } catch {}
     }
     return;
   }
 
   // 3. Commandes Slash
   if (!interaction.isChatInputCommand()) return;
-  const command = client.commands.get(interaction.commandName);
+  const command = commands.get(interaction.commandName);
   if (!command) return;
 
   try {
@@ -228,7 +193,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // Retrait immédiat du rôle Inactif si présent
   if (
-    config.roles?.inactive &&
+    config.roles.inactive &&
     message.member?.roles.cache.has(config.roles.inactive)
   ) {
     try {
@@ -237,12 +202,12 @@ client.on(Events.MessageCreate, async (message) => {
     } catch (err) {
       console.error(
         `Impossible de retirer le rôle inactif à ${message.author.tag} :`,
-        err.message,
+        getErrorMessage(err),
       );
     }
   }
 
-  if (config.ignoredChannels?.includes(message.channel.id)) return;
+  if (config.ignoredChannels.includes(message.channel.id)) return;
 
   const type = message.attachments.size > 0 ? "file" : "message";
   db.logActivity(
@@ -260,30 +225,38 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
   if (reaction.partial) {
     try {
       await reaction.fetch();
-    } catch (e) {
+    } catch {
       return;
     }
   }
 
   if (!reaction.message.guild) return;
 
-  if (config.roles?.inactive) {
+  if (config.roles.inactive) {
     try {
       const member = await reaction.message.guild.members.fetch(user.id);
       if (member.roles.cache.has(config.roles.inactive)) {
         await member.roles.remove(config.roles.inactive);
         console.log(
-          `[RÉVEIL] Rôle inactif retiré via réaction pour ${user.tag}`,
+          `[RÉVEIL] Rôle inactif retiré via réaction pour ${user.tag ?? user.id}`,
         );
       }
     } catch (err) {
-      console.error(`[RÉVEIL] Erreur fetch membre ${user.id}:`, err.message);
+      console.error(
+        `[RÉVEIL] Erreur fetch membre ${user.id}:`,
+        getErrorMessage(err),
+      );
     }
   }
 
-  if (config.ignoredChannels?.includes(reaction.message.channel.id)) return;
+  if (config.ignoredChannels.includes(reaction.message.channel.id)) return;
 
-  db.logActivity(user.id, user.username, "reaction", config.cooldown);
+  db.logActivity(
+    user.id,
+    user.username ?? "Inconnu",
+    "reaction",
+    config.cooldown,
+  );
 });
 
 // Gestion des Départs : suppression données + anniversaire + mise à jour liste
@@ -294,19 +267,18 @@ client.on(Events.GuildMemberRemove, async (member) => {
 
   // Mise à jour de la liste persistante des anniversaires
   try {
-    const { refreshBirthdayMessage } = require("./src/utils/birthday");
     await refreshBirthdayMessage(member.guild);
   } catch (err) {
     console.error(
       "[ANNIVERSAIRES] Erreur rafraîchissement après départ :",
-      err.message,
+      getErrorMessage(err),
     );
   }
 });
 
 // Détection du retrait manuel du rôle Inactif (réinitialise le cooldown d'inactivité)
 client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
-  const inactiveRoleId = config.roles?.inactive;
+  const inactiveRoleId = config.roles.inactive;
   if (!inactiveRoleId) return;
 
   const hadRole = oldMember.roles.cache.has(inactiveRoleId);
@@ -327,22 +299,28 @@ client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
 
   // On vérifie que le thread est bien dans le salon forum des sorties
   if (
-    config.channels?.sortiesForum &&
+    config.channels.sortiesForum &&
     thread.parentId === config.channels.sortiesForum
   ) {
     // Petit délai de 1 sec pour s'assurer que Discord a bien finalisé la création du fil
-    setTimeout(() => handleNewSortieThread(thread), 1000);
+    setTimeout(() => {
+      void handleNewSortieThread(thread);
+    }, 1000);
   }
 });
 
 // --- TÂCHES AUTOMATIQUES (CRON) ---
 
-const CRON_OPTIONS = {
+const CRON_OPTIONS: TaskOptions = {
   timezone: "Europe/Paris",
   noOverlap: true,
 };
 
-function getParisDateParts(date = new Date()) {
+function getParisDateParts(date = new Date()): {
+  year: number;
+  month: number;
+  day: number;
+} {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Paris",
     year: "numeric",
@@ -357,7 +335,7 @@ function getParisDateParts(date = new Date()) {
   };
 }
 
-function initCronJobs() {
+function initCronJobs(): void {
   console.log("📅 Tâches Cron initialisées.");
 
   // Tâche 1 : Vérification d'Inactivité (Minuit)
@@ -367,13 +345,15 @@ function initCronJobs() {
       console.log("[CRON] Vérification d'inactivité...");
       const guild = client.guilds.cache.get(config.guildId);
       if (!guild) return;
-      if (!config.roles?.inactive) return;
+      const inactiveRoleId = config.roles.inactive;
+      if (!inactiveRoleId) return;
 
       const inactiveUsers = db.getInactiveUsers(INACTIVITY_DAYS);
       if (inactiveUsers.length === 0) return;
 
       console.log(`[CRON] ${inactiveUsers.length} utilisateurs à traiter.`);
-      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const sleep = (ms: number): Promise<void> =>
+        new Promise((r) => setTimeout(r, ms));
 
       for (const userData of inactiveUsers) {
         try {
@@ -381,20 +361,20 @@ function initCronJobs() {
           if (!member) {
             try {
               member = await guild.members.fetch(userData.user_id);
-            } catch (e) {
+            } catch {
               continue;
             }
           }
 
-          if (member.roles.cache.has(config.roles.inactive)) continue;
+          if (member.roles.cache.has(inactiveRoleId)) continue;
 
-          await member.roles.add(config.roles.inactive);
+          await member.roles.add(inactiveRoleId);
           console.log(`[INACTIVITÉ] +Rôle pour ${member.user.tag}`);
           await sleep(1000);
         } catch (err) {
           console.error(
             `Erreur traitement user ${userData.user_id}:`,
-            err.message,
+            getErrorMessage(err),
           );
         }
       }
@@ -440,7 +420,8 @@ function initCronJobs() {
       );
 
       if (candidates.length === 0) {
-        return console.log("[MEMBRE DU MOIS] Aucune activité ce mois-ci.");
+        console.log("[MEMBRE DU MOIS] Aucune activité ce mois-ci.");
+        return;
       }
 
       console.log(`[MEMBRE DU MOIS] Top 3 candidats :`);
@@ -453,8 +434,8 @@ function initCronJobs() {
       });
 
       // Trouver le premier candidat encore sur le serveur
-      let winner = null;
-      let winnerMember = null;
+      let winner: WinnerCandidate | null = null;
+      let winnerMember: GuildMember | null = null;
 
       for (const candidate of candidates) {
         try {
@@ -465,7 +446,7 @@ function initCronJobs() {
             `[MEMBRE DU MOIS] Gagnant trouvé : ${candidate.username}`,
           );
           break;
-        } catch (e) {
+        } catch {
           console.log(
             `[MEMBRE DU MOIS] ${candidate.username} a quitté le serveur, passage au suivant...`,
           );
@@ -473,24 +454,28 @@ function initCronJobs() {
       }
 
       if (!winner || !winnerMember) {
-        return console.log(
+        console.log(
           "[MEMBRE DU MOIS] Aucun gagnant disponible (tous ont quitté).",
         );
+        return;
       }
 
       try {
         await guild.members.fetch();
 
-        // Retirer le rôle aux anciens gagnants
-        const role = await guild.roles.fetch(config.roles.activeOfMonth);
-        if (role) {
-          for (const [, member] of role.members) {
-            await member.roles.remove(role);
+        const activeRoleId = config.roles.activeOfMonth;
+        if (activeRoleId) {
+          // Retirer le rôle aux anciens gagnants
+          const role = await guild.roles.fetch(activeRoleId);
+          if (role) {
+            for (const [, member] of role.members) {
+              await member.roles.remove(role);
+            }
           }
-        }
 
-        // Attribuer le rôle au nouveau gagnant
-        await winnerMember.roles.add(config.roles.activeOfMonth);
+          // Attribuer le rôle au nouveau gagnant
+          await winnerMember.roles.add(activeRoleId);
+        }
 
         // Sauvegarder dans l'historique
         db.saveMonthWinner(
@@ -502,8 +487,11 @@ function initCronJobs() {
         );
 
         // Envoyer l'annonce
-        const channel = guild.channels.cache.get(config.channels.announcement);
-        if (channel) {
+        const announcementChannelId = config.channels.announcement;
+        const channel = announcementChannelId
+          ? guild.channels.cache.get(announcementChannelId)
+          : undefined;
+        if (channel?.isSendable()) {
           const embed = new EmbedBuilder()
             .setColor(0xe91e63)
             .setTitle("🎉 Membre du Mois !")
@@ -535,7 +523,7 @@ function initCronJobs() {
     async () => {
       console.log("[MAINTENANCE] 🔄 Démarrage de la procédure...");
 
-      const BACKUP_DIR = path.join(__dirname, "backups");
+      const BACKUP_DIR = path.join(import.meta.dirname, "backups");
       const RETENTION_LIMIT = 5;
 
       const deleted = db.pruneLogs(365);
@@ -587,7 +575,7 @@ function initCronJobs() {
     async () => {
       console.log("[BACKUP DISCORD] 🔄 Démarrage...");
 
-      const BACKUP_DIR = path.join(__dirname, "backups");
+      const BACKUP_DIR = path.join(import.meta.dirname, "backups");
       const BACKUP_CHANNEL_ID = config.channels.backups;
 
       if (!BACKUP_CHANNEL_ID || BACKUP_CHANNEL_ID === "ID_DU_SALON") {
@@ -611,7 +599,7 @@ function initCronJobs() {
           .fetch(BACKUP_CHANNEL_ID)
           .catch(() => null);
 
-        if (channel) {
+        if (channel?.isSendable()) {
           const file = new AttachmentBuilder(backupPath, { name: fileName });
           await channel.send({
             content: `💾 **Sauvegarde Mensuelle**\n📅 <t:${Math.floor(timestamp / 1000)}:f>`,
@@ -628,7 +616,13 @@ function initCronJobs() {
           await fs.promises.unlink(backupPath);
           console.log("[BACKUP DISCORD] 🗑️ Fichier temporaire supprimé.");
         } catch (unlinkErr) {
-          if (unlinkErr.code !== "ENOENT") {
+          const code =
+            typeof unlinkErr === "object" &&
+            unlinkErr !== null &&
+            "code" in unlinkErr
+              ? unlinkErr.code
+              : undefined;
+          if (code !== "ENOENT") {
             console.error(
               "[BACKUP DISCORD] Impossible de supprimer le fichier temporaire :",
               unlinkErr,
@@ -657,7 +651,7 @@ function initCronJobs() {
         let todayBirthdays = db.getTodayBirthdays(day, month);
 
         // --- FIX EDGE CASE 29 FÉVRIER ---
-        const isLeapYear = (y) =>
+        const isLeapYear = (y: number): boolean =>
           (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
 
         // Si on est le 28 février d'une année normale, on intègre les natifs du 29
@@ -671,11 +665,14 @@ function initCronJobs() {
           return;
         }
 
-        const channel = guild.channels.cache.get(config.channels.announcement);
-        if (!channel) {
+        const announcementChannelId = config.channels.announcement;
+        const channel = announcementChannelId
+          ? guild.channels.cache.get(announcementChannelId)
+          : undefined;
+        if (!channel?.isSendable()) {
           console.warn(
             "[CRON] Salon d'annonces introuvable :",
-            config.channels.announcement,
+            announcementChannelId,
           );
           return;
         }
@@ -702,4 +699,4 @@ function initCronJobs() {
   );
 }
 
-client.login(config.token);
+void client.login(config.token);
