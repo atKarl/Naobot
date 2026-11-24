@@ -16,6 +16,7 @@ const {
   handleNewSortieThread,
   handleSortieButton,
   handleSortieModalSubmit,
+  createDateInParisTime,
 } = require("./src/utils/sorties");
 
 // Validation de la configuration
@@ -195,7 +196,10 @@ client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.guild) return;
 
   // Retrait immédiat du rôle Inactif si présent
-  if (message.member?.roles.cache.has(config.roles.inactive)) {
+  if (
+    config.roles?.inactive &&
+    message.member?.roles.cache.has(config.roles.inactive)
+  ) {
     try {
       await message.member.roles.remove(config.roles.inactive);
       console.log(`[RÉVEIL] Rôle inactif retiré à ${message.author.tag}`);
@@ -230,7 +234,9 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
     }
   }
 
-  if (reaction.message.guild) {
+  if (!reaction.message.guild) return;
+
+  if (config.roles?.inactive) {
     try {
       const member = await reaction.message.guild.members.fetch(user.id);
       if (member.roles.cache.has(config.roles.inactive)) {
@@ -300,252 +306,308 @@ client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
 
 // --- TÂCHES AUTOMATIQUES (CRON) ---
 
+const CRON_OPTIONS = {
+  timezone: "Europe/Paris",
+  noOverlap: true,
+};
+
+function getParisDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return {
+    year: Number(map.year),
+    month: Number(map.month),
+    day: Number(map.day),
+  };
+}
+
 function initCronJobs() {
   console.log("📅 Tâches Cron initialisées.");
 
   // Tâche 1 : Vérification d'Inactivité (Minuit)
-  cron.schedule("0 0 * * *", async () => {
-    console.log("[CRON] Vérification d'inactivité...");
-    const guild = client.guilds.cache.get(config.guildId);
-    if (!guild) return;
+  cron.schedule(
+    "0 0 * * *",
+    async () => {
+      console.log("[CRON] Vérification d'inactivité...");
+      const guild = client.guilds.cache.get(config.guildId);
+      if (!guild) return;
+      if (!config.roles?.inactive) return;
 
-    const inactiveUsers = db.getInactiveUsers(90);
-    if (inactiveUsers.length === 0) return;
+      const inactiveUsers = db.getInactiveUsers(90);
+      if (inactiveUsers.length === 0) return;
 
-    console.log(`[CRON] ${inactiveUsers.length} utilisateurs à traiter.`);
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      console.log(`[CRON] ${inactiveUsers.length} utilisateurs à traiter.`);
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    for (const userData of inactiveUsers) {
-      try {
-        let member = guild.members.cache.get(userData.user_id);
-        if (!member) {
-          try {
-            member = await guild.members.fetch(userData.user_id);
-          } catch (e) {
-            continue;
+      for (const userData of inactiveUsers) {
+        try {
+          let member = guild.members.cache.get(userData.user_id);
+          if (!member) {
+            try {
+              member = await guild.members.fetch(userData.user_id);
+            } catch (e) {
+              continue;
+            }
           }
-        }
 
-        if (member.roles.cache.has(config.roles.inactive)) continue;
+          if (member.roles.cache.has(config.roles.inactive)) continue;
 
-        await member.roles.add(config.roles.inactive);
-        console.log(`[INACTIVITÉ] +Rôle pour ${member.user.tag}`);
-        await sleep(1000);
-      } catch (err) {
-        console.error(
-          `Erreur traitement user ${userData.user_id}:`,
-          err.message,
-        );
-      }
-    }
-    console.log("[CRON] Traitement inactivité terminé.");
-  });
-
-  // Tâche 2 : Membre du Mois (1er du mois à minuit)
-  cron.schedule("0 0 1 * *", async () => {
-    console.log("[MEMBRE DU MOIS] Calcul en cours...");
-    const guild = client.guilds.cache.get(config.guildId);
-    if (!guild) return;
-
-    const now = new Date();
-    const lastMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-    const lastMonthYear =
-      now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-
-    const startOfLastMonth = new Date(lastMonthYear, lastMonth, 1).getTime();
-    const endOfLastMonth = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      0,
-      23,
-      59,
-      59,
-    ).getTime();
-
-    // Calculer le top 10 avec malus
-    const candidates = db.calculateWinnerWithPenalty(
-      startOfLastMonth,
-      endOfLastMonth,
-      lastMonth + 1, // Mois 1-12
-      lastMonthYear,
-    );
-
-    if (candidates.length === 0) {
-      return console.log("[MEMBRE DU MOIS] Aucune activité ce mois-ci.");
-    }
-
-    console.log(`[MEMBRE DU MOIS] Top 3 candidats :`);
-    candidates.slice(0, 3).forEach((c, i) => {
-      const penaltyText = c.penalty > 0 ? ` (malus -${c.penalty * 100}%)` : "";
-      console.log(
-        `  ${i + 1}. ${c.username}: ${c.rawScore} pts → ${c.adjustedScore} pts${penaltyText}`,
-      );
-    });
-
-    // Trouver le premier candidat encore sur le serveur
-    let winner = null;
-    let winnerMember = null;
-
-    for (const candidate of candidates) {
-      try {
-        const member = await guild.members.fetch(candidate.user_id);
-        winner = candidate;
-        winnerMember = member;
-        console.log(`[MEMBRE DU MOIS] Gagnant trouvé : ${candidate.username}`);
-        break;
-      } catch (e) {
-        console.log(
-          `[MEMBRE DU MOIS] ${candidate.username} a quitté le serveur, passage au suivant...`,
-        );
-      }
-    }
-
-    if (!winner || !winnerMember) {
-      return console.log(
-        "[MEMBRE DU MOIS] Aucun gagnant disponible (tous ont quitté).",
-      );
-    }
-
-    try {
-      // Retirer le rôle aux anciens gagnants
-      const role = await guild.roles.fetch(config.roles.activeOfMonth);
-      if (role) {
-        for (const [, member] of role.members) {
-          await member.roles.remove(role);
-        }
-      }
-
-      // Attribuer le rôle au nouveau gagnant
-      await winnerMember.roles.add(config.roles.activeOfMonth);
-
-      // Sauvegarder dans l'historique
-      db.saveMonthWinner(
-        winner.user_id,
-        winner.username,
-        lastMonth + 1,
-        lastMonthYear,
-        winner.adjustedScore,
-      );
-
-      // Envoyer l'annonce
-      const channel = guild.channels.cache.get(config.channels.announcement);
-      if (channel) {
-        const embed = new EmbedBuilder()
-          .setColor(0xe91e63)
-          .setTitle("🎉 Membre du Mois !")
-          .setDescription(
-            `Bravo <@${winner.user_id}> qui a été le plus actif le mois dernier !`,
-          )
-          .addFields({
-            name: "Score",
-            value: `${winner.adjustedScore} points`,
-            inline: true,
-          })
-          .setTimestamp();
-        await channel.send({ embeds: [embed] });
-      }
-
-      console.log(
-        `[MEMBRE DU MOIS] ✅ ${winner.username} est le nouveau membre du mois !`,
-      );
-    } catch (err) {
-      console.error("[MEMBRE DU MOIS] Erreur :", err);
-    }
-  });
-
-  // Tâche 3 : Maintenance Hebdomadaire (Dimanche à 04h00)
-  cron.schedule("0 4 * * 0", async () => {
-    console.log("[MAINTENANCE] 🔄 Démarrage de la procédure...");
-
-    const BACKUP_DIR = path.join(__dirname, "backups");
-    const RETENTION_LIMIT = 5;
-
-    const deleted = db.pruneLogs(365);
-    console.log(`[NETTOYAGE] ${deleted} anciens logs supprimés.`);
-
-    const timestamp = Date.now();
-    const fileName = `backup-${timestamp}.db`;
-    const backupPath = path.join(BACKUP_DIR, fileName);
-
-    if (!fs.existsSync(BACKUP_DIR)) {
-      fs.mkdirSync(BACKUP_DIR, { recursive: true });
-    }
-
-    try {
-      await db.createBackup(backupPath);
-      console.log(`[BACKUP LOCAL] ✅ Copie réussie : ${fileName}`);
-
-      const files = await fs.promises.readdir(BACKUP_DIR);
-      const fileStats = await Promise.all(
-        files
-          .filter((f) => f.endsWith(".db"))
-          .map(async (f) => {
-            const stats = await fs.promises.stat(path.join(BACKUP_DIR, f));
-            return { name: f, time: stats.mtime.getTime() };
-          }),
-      );
-
-      fileStats.sort((a, b) => b.time - a.time);
-
-      if (fileStats.length > RETENTION_LIMIT) {
-        const toDelete = fileStats.slice(RETENTION_LIMIT);
-        for (const file of toDelete) {
-          await fs.promises.unlink(path.join(BACKUP_DIR, file.name));
-          console.log(
-            `[BACKUP LOCAL] Suppression ancienne sauvegarde : ${file.name}`,
+          await member.roles.add(config.roles.inactive);
+          console.log(`[INACTIVITÉ] +Rôle pour ${member.user.tag}`);
+          await sleep(1000);
+        } catch (err) {
+          console.error(
+            `Erreur traitement user ${userData.user_id}:`,
+            err.message,
           );
         }
       }
-    } catch (error) {
-      console.error("[MAINTENANCE] Erreur critique :", error);
-    }
-  });
+      console.log("[CRON] Traitement inactivité terminé.");
+    },
+    CRON_OPTIONS,
+  );
 
-  // Tâche 4 : Backup Discord Mensuel (15 du mois à 04h00)
-  cron.schedule("0 4 15 * *", async () => {
-    console.log("[BACKUP DISCORD] 🔄 Démarrage...");
+  // Tâche 2 : Membre du Mois (1er du mois à minuit)
+  cron.schedule(
+    "0 0 1 * *",
+    async () => {
+      console.log("[MEMBRE DU MOIS] Calcul en cours...");
+      const guild = client.guilds.cache.get(config.guildId);
+      if (!guild) return;
 
-    const BACKUP_DIR = path.join(__dirname, "backups");
-    const BACKUP_CHANNEL_ID = config.channels.backups;
+      const { year: currentYear, month: currentMonth } = getParisDateParts();
+      const lastMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+      const lastMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
 
-    if (!BACKUP_CHANNEL_ID || BACKUP_CHANNEL_ID === "ID_DU_SALON") {
-      console.warn("[BACKUP DISCORD] ⚠️ Aucun ID de salon défini.");
-      return;
-    }
+      const startOfLastMonth = createDateInParisTime(
+        1,
+        lastMonth - 1,
+        lastMonthYear,
+        0,
+        0,
+      ).getTime();
+      const startOfCurrentMonth = createDateInParisTime(
+        1,
+        currentMonth - 1,
+        currentYear,
+        0,
+        0,
+      ).getTime();
+      const endOfLastMonth = startOfCurrentMonth - 1;
 
-    const timestamp = Date.now();
-    const fileName = `backup-${timestamp}.db`;
-    const backupPath = path.join(BACKUP_DIR, fileName);
+      // Calculer le top 10 avec malus
+      const candidates = db.calculateWinnerWithPenalty(
+        startOfLastMonth,
+        endOfLastMonth,
+        lastMonth, // Mois 1-12
+        lastMonthYear,
+      );
 
-    if (!fs.existsSync(BACKUP_DIR)) {
-      fs.mkdirSync(BACKUP_DIR, { recursive: true });
-    }
-
-    try {
-      await db.createBackup(backupPath);
-      console.log(`[BACKUP DISCORD] ✅ Fichier créé : ${fileName}`);
-
-      const channel = await client.channels
-        .fetch(BACKUP_CHANNEL_ID)
-        .catch(() => null);
-
-      if (channel) {
-        const file = new AttachmentBuilder(backupPath, { name: fileName });
-        await channel.send({
-          content: `💾 **Sauvegarde Mensuelle**\n📅 <t:${Math.floor(timestamp / 1000)}:f>`,
-          files: [file],
-        });
-        console.log("[BACKUP DISCORD] 📤 Envoyé avec succès.");
-      } else {
-        console.warn("[BACKUP DISCORD] ⚠️ Salon introuvable.");
+      if (candidates.length === 0) {
+        return console.log("[MEMBRE DU MOIS] Aucune activité ce mois-ci.");
       }
 
-      await fs.promises.unlink(backupPath);
-      console.log("[BACKUP DISCORD] 🗑️ Fichier temporaire supprimé.");
-    } catch (error) {
-      console.error("[BACKUP DISCORD] Erreur :", error);
-    }
-  });
+      console.log(`[MEMBRE DU MOIS] Top 3 candidats :`);
+      candidates.slice(0, 3).forEach((c, i) => {
+        const penaltyText =
+          c.penalty > 0 ? ` (malus -${c.penalty * 100}%)` : "";
+        console.log(
+          `  ${i + 1}. ${c.username}: ${c.rawScore} pts → ${c.adjustedScore} pts${penaltyText}`,
+        );
+      });
+
+      // Trouver le premier candidat encore sur le serveur
+      let winner = null;
+      let winnerMember = null;
+
+      for (const candidate of candidates) {
+        try {
+          const member = await guild.members.fetch(candidate.user_id);
+          winner = candidate;
+          winnerMember = member;
+          console.log(
+            `[MEMBRE DU MOIS] Gagnant trouvé : ${candidate.username}`,
+          );
+          break;
+        } catch (e) {
+          console.log(
+            `[MEMBRE DU MOIS] ${candidate.username} a quitté le serveur, passage au suivant...`,
+          );
+        }
+      }
+
+      if (!winner || !winnerMember) {
+        return console.log(
+          "[MEMBRE DU MOIS] Aucun gagnant disponible (tous ont quitté).",
+        );
+      }
+
+      try {
+        await guild.members.fetch();
+
+        // Retirer le rôle aux anciens gagnants
+        const role = await guild.roles.fetch(config.roles.activeOfMonth);
+        if (role) {
+          for (const [, member] of role.members) {
+            await member.roles.remove(role);
+          }
+        }
+
+        // Attribuer le rôle au nouveau gagnant
+        await winnerMember.roles.add(config.roles.activeOfMonth);
+
+        // Sauvegarder dans l'historique
+        db.saveMonthWinner(
+          winner.user_id,
+          winner.username,
+          lastMonth,
+          lastMonthYear,
+          winner.adjustedScore,
+        );
+
+        // Envoyer l'annonce
+        const channel = guild.channels.cache.get(config.channels.announcement);
+        if (channel) {
+          const embed = new EmbedBuilder()
+            .setColor(0xe91e63)
+            .setTitle("🎉 Membre du Mois !")
+            .setDescription(
+              `Bravo <@${winner.user_id}> qui a été le plus actif le mois dernier !`,
+            )
+            .addFields({
+              name: "Score",
+              value: `${winner.adjustedScore} points`,
+              inline: true,
+            })
+            .setTimestamp();
+          await channel.send({ embeds: [embed] });
+        }
+
+        console.log(
+          `[MEMBRE DU MOIS] ✅ ${winner.username} est le nouveau membre du mois !`,
+        );
+      } catch (err) {
+        console.error("[MEMBRE DU MOIS] Erreur :", err);
+      }
+    },
+    CRON_OPTIONS,
+  );
+
+  // Tâche 3 : Maintenance Hebdomadaire (Dimanche à 04h00)
+  cron.schedule(
+    "0 4 * * 0",
+    async () => {
+      console.log("[MAINTENANCE] 🔄 Démarrage de la procédure...");
+
+      const BACKUP_DIR = path.join(__dirname, "backups");
+      const RETENTION_LIMIT = 5;
+
+      const deleted = db.pruneLogs(365);
+      console.log(`[NETTOYAGE] ${deleted} anciens logs supprimés.`);
+
+      const timestamp = Date.now();
+      const fileName = `backup-${timestamp}.db`;
+      const backupPath = path.join(BACKUP_DIR, fileName);
+
+      if (!fs.existsSync(BACKUP_DIR)) {
+        fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      }
+
+      try {
+        await db.createBackup(backupPath);
+        console.log(`[BACKUP LOCAL] ✅ Copie réussie : ${fileName}`);
+
+        const files = await fs.promises.readdir(BACKUP_DIR);
+        const fileStats = await Promise.all(
+          files
+            .filter((f) => f.endsWith(".db"))
+            .map(async (f) => {
+              const stats = await fs.promises.stat(path.join(BACKUP_DIR, f));
+              return { name: f, time: stats.mtime.getTime() };
+            }),
+        );
+
+        fileStats.sort((a, b) => b.time - a.time);
+
+        if (fileStats.length > RETENTION_LIMIT) {
+          const toDelete = fileStats.slice(RETENTION_LIMIT);
+          for (const file of toDelete) {
+            await fs.promises.unlink(path.join(BACKUP_DIR, file.name));
+            console.log(
+              `[BACKUP LOCAL] Suppression ancienne sauvegarde : ${file.name}`,
+            );
+          }
+        }
+      } catch (error) {
+        console.error("[MAINTENANCE] Erreur critique :", error);
+      }
+    },
+    CRON_OPTIONS,
+  );
+
+  // Tâche 4 : Backup Discord Mensuel (15 du mois à 04h00)
+  cron.schedule(
+    "0 4 15 * *",
+    async () => {
+      console.log("[BACKUP DISCORD] 🔄 Démarrage...");
+
+      const BACKUP_DIR = path.join(__dirname, "backups");
+      const BACKUP_CHANNEL_ID = config.channels.backups;
+
+      if (!BACKUP_CHANNEL_ID || BACKUP_CHANNEL_ID === "ID_DU_SALON") {
+        console.warn("[BACKUP DISCORD] ⚠️ Aucun ID de salon défini.");
+        return;
+      }
+
+      const timestamp = Date.now();
+      const fileName = `backup-${timestamp}.db`;
+      const backupPath = path.join(BACKUP_DIR, fileName);
+
+      if (!fs.existsSync(BACKUP_DIR)) {
+        fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      }
+
+      try {
+        await db.createBackup(backupPath);
+        console.log(`[BACKUP DISCORD] ✅ Fichier créé : ${fileName}`);
+
+        const channel = await client.channels
+          .fetch(BACKUP_CHANNEL_ID)
+          .catch(() => null);
+
+        if (channel) {
+          const file = new AttachmentBuilder(backupPath, { name: fileName });
+          await channel.send({
+            content: `💾 **Sauvegarde Mensuelle**\n📅 <t:${Math.floor(timestamp / 1000)}:f>`,
+            files: [file],
+          });
+          console.log("[BACKUP DISCORD] 📤 Envoyé avec succès.");
+        } else {
+          console.warn("[BACKUP DISCORD] ⚠️ Salon introuvable.");
+        }
+      } catch (error) {
+        console.error("[BACKUP DISCORD] Erreur :", error);
+      } finally {
+        try {
+          await fs.promises.unlink(backupPath);
+          console.log("[BACKUP DISCORD] 🗑️ Fichier temporaire supprimé.");
+        } catch (unlinkErr) {
+          if (unlinkErr.code !== "ENOENT") {
+            console.error(
+              "[BACKUP DISCORD] Impossible de supprimer le fichier temporaire :",
+              unlinkErr,
+            );
+          }
+        }
+      }
+    },
+    CRON_OPTIONS,
+  );
 
   // ----------------------------------------------------------------
   // Tâche 5 : Annonces d'Anniversaires — Tous les jours à 09h00
@@ -553,57 +615,59 @@ function initCronJobs() {
   cron.schedule(
     "0 9 * * *",
     async () => {
-      console.log(" Vérification des anniversaires du jour...");
+      try {
+        console.log("[CRON] Vérification des anniversaires du jour...");
 
-      const guild = client.guilds.cache.get(config.guildId);
-      if (!guild) return;
+        const guild = client.guilds.cache.get(config.guildId);
+        if (!guild) return;
 
-      const now = new Date();
-      const day = now.getDate();
-      const month = now.getMonth() + 1;
-      const year = now.getFullYear();
+        const { day, month, year } = getParisDateParts();
 
-      let todayBirthdays = db.getTodayBirthdays(day, month);
+        let todayBirthdays = db.getTodayBirthdays(day, month);
 
-      // --- FIX EDGE CASE 29 FÉVRIER ---
-      const isLeapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+        // --- FIX EDGE CASE 29 FÉVRIER ---
+        const isLeapYear = (y) =>
+          (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
 
-      // Si on est le 28 février d'une année normale, on intègre les natifs du 29
-      if (day === 28 && month === 2 && !isLeapYear(year)) {
-        const leapBirthdays = db.getTodayBirthdays(29, 2);
-        todayBirthdays = todayBirthdays.concat(leapBirthdays);
-      }
+        // Si on est le 28 février d'une année normale, on intègre les natifs du 29
+        if (day === 28 && month === 2 && !isLeapYear(year)) {
+          const leapBirthdays = db.getTodayBirthdays(29, 2);
+          todayBirthdays = todayBirthdays.concat(leapBirthdays);
+        }
 
-      if (todayBirthdays.length === 0) {
-        console.log("[CRON] Aucun anniversaire aujourd'hui.");
-        return;
-      }
+        if (todayBirthdays.length === 0) {
+          console.log("[CRON] Aucun anniversaire aujourd'hui.");
+          return;
+        }
 
-      const channel = guild.channels.cache.get(config.channels.announcement);
-      if (!channel) {
-        console.warn(
-          "[ANNIVERSAIRES] Salon d'annonces introuvable :",
-          config.channels.announcement,
+        const channel = guild.channels.cache.get(config.channels.announcement);
+        if (!channel) {
+          console.warn(
+            "[CRON] Salon d'annonces introuvable :",
+            config.channels.announcement,
+          );
+          return;
+        }
+
+        // Construction des mentions @pseudo
+        const mentions = todayBirthdays
+          .map((u) => `<@${u.user_id}>`)
+          .join(", ");
+        const plural = todayBirthdays.length > 1;
+
+        await channel.send(
+          `🎉🎂 Joyeux anniversaire ${mentions} !\n` +
+            `Le serveur entier ${plural ? "vous souhaite" : "te souhaite"} une merveilleuse journée ! 🥳`,
         );
-        return;
+
+        console.log(
+          `[CRON] Annonce anniversaire envoyée pour : ${todayBirthdays.map((u) => u.username).join(", ")}`,
+        );
+      } catch (err) {
+        console.error("[CRON] Erreur annonces anniversaires :", err);
       }
-
-      // Construction des mentions @pseudo
-      const mentions = todayBirthdays.map((u) => `<@${u.user_id}>`).join(", ");
-      const plural = todayBirthdays.length > 1;
-
-      await channel.send(
-        `🎉🎂 Joyeux anniversaire ${mentions} !\n` +
-          `Le serveur entier ${plural ? "vous souhaite" : "te souhaite"} une merveilleuse journée ! 🥳`,
-      );
-
-      console.log(
-        `[CRON] Annonce anniversaire envoyée pour : ${todayBirthdays.map((u) => u.username).join(", ")}`,
-      );
     },
-    {
-      timezone: "Europe/Paris",
-    },
+    CRON_OPTIONS,
   );
 }
 
