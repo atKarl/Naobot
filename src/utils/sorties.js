@@ -2,7 +2,10 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  LabelBuilder,
   ModalBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
   GuildScheduledEventPrivacyLevel,
@@ -85,7 +88,6 @@ async function handleSortieButton(interaction) {
     // Champ 1 : Titre (max 100)
     const titleInput = new TextInputBuilder()
       .setCustomId("title")
-      .setLabel("Titre de l'événement")
       .setStyle(TextInputStyle.Short)
       .setValue(defaultTitle)
       .setMaxLength(100)
@@ -94,7 +96,6 @@ async function handleSortieButton(interaction) {
     // Champ 2 : Date séparée (accepte 23/09, demain, vendredi...)
     const dateInput = new TextInputBuilder()
       .setCustomId("date")
-      .setLabel("Date (ex: 23/09 ou Demain, Samedi)")
       .setStyle(TextInputStyle.Short)
       .setPlaceholder("23/09, demain, vendredi, 15/10...")
       .setMaxLength(20)
@@ -103,36 +104,60 @@ async function handleSortieButton(interaction) {
     // Champ 3 : Heure séparée (ex: 19h30, 20h)
     const timeInput = new TextInputBuilder()
       .setCustomId("time")
-      .setLabel("Heure de début (ex: 19h30 ou 20h)")
       .setStyle(TextInputStyle.Short)
       .setPlaceholder("19h30, 20h, 14:00...")
       .setMaxLength(10)
       .setRequired(true);
 
-    // Champ 4 : Durée
-    const durationInput = new TextInputBuilder()
+    // Champ 4 : Durée (menu déroulant)
+    const durationSelect = new StringSelectMenuBuilder()
       .setCustomId("duration")
-      .setLabel("Durée estimée (en heures)")
-      .setStyle(TextInputStyle.Short)
-      .setValue("2")
-      .setMaxLength(5)
-      .setRequired(true);
+      .setRequired(true)
+      .addOptions(
+        new StringSelectMenuOptionBuilder().setLabel("1 heure").setValue("1"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("2 heures")
+          .setValue("2")
+          .setDefault(true),
+        new StringSelectMenuOptionBuilder().setLabel("3 heures").setValue("3"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("4 heures (Soirée)")
+          .setValue("4"),
+        new StringSelectMenuOptionBuilder().setLabel("6 heures").setValue("6"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("8 heures (Journée)")
+          .setValue("8"),
+      );
 
     // Champ 5 : Lieu
     const locationInput = new TextInputBuilder()
       .setCustomId("location")
-      .setLabel("Lieu du rendez-vous")
       .setStyle(TextInputStyle.Short)
       .setPlaceholder("ex: Cinéma Katorza, Parc de Procé...")
       .setMaxLength(100)
       .setRequired(true);
 
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(titleInput),
-      new ActionRowBuilder().addComponents(dateInput),
-      new ActionRowBuilder().addComponents(timeInput),
-      new ActionRowBuilder().addComponents(durationInput),
-      new ActionRowBuilder().addComponents(locationInput),
+    modal.addLabelComponents(
+      new LabelBuilder()
+        .setLabel("Titre de l'événement")
+        .setTextInputComponent(titleInput),
+      new LabelBuilder()
+        .setLabel("Date")
+        .setDescription(
+          "Formats acceptés : 23/09, demain, vendredi, 23/09/2026",
+        )
+        .setTextInputComponent(dateInput),
+      new LabelBuilder()
+        .setLabel("Heure de début")
+        .setDescription("Formats acceptés : 19h30, 20h, 14:00")
+        .setTextInputComponent(timeInput),
+      new LabelBuilder()
+        .setLabel("Durée estimée")
+        .setStringSelectMenuComponent(durationSelect),
+      new LabelBuilder()
+        .setLabel("Lieu du rendez-vous")
+        .setDescription("Ex : Cinéma Katorza, Parc de Procé...")
+        .setTextInputComponent(locationInput),
     );
 
     await interaction.showModal(modal);
@@ -304,7 +329,7 @@ async function handleSortieModalSubmit(interaction) {
   const title = interaction.fields.getTextInputValue("title");
   const dateStr = interaction.fields.getTextInputValue("date");
   const timeStr = interaction.fields.getTextInputValue("time");
-  const durationStr = interaction.fields.getTextInputValue("duration");
+  const durationStr = interaction.fields.getStringSelectValues("duration")[0];
   const location = interaction.fields.getTextInputValue("location");
 
   // 1. Validation de la date et de l'heure
@@ -344,7 +369,7 @@ async function handleSortieModalSubmit(interaction) {
   }
 
   // 2. Validation de la durée
-  const durationHours = parseFloat(durationStr.replace(",", "."));
+  const durationHours = parseFloat((durationStr ?? "").replace(",", "."));
   if (isNaN(durationHours) || durationHours <= 0 || durationHours > 72) {
     return interaction.editReply(
       "❌ **Durée invalide !** Indiquez un nombre d'heures (ex: `2` ou `3.5`).",
