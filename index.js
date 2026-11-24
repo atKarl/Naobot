@@ -135,9 +135,25 @@ client.once(Events.ClientReady, (c) => {
 
 // Gestion des interactions (Commandes Slash, Boutons, Modals)
 client.on(Events.InteractionCreate, async (interaction) => {
+  const errPayload = {
+    content: "Une erreur interne est survenue.",
+    flags: MessageFlags.Ephemeral,
+  };
+
   // 1. Boutons du module Sorties
   if (interaction.isButton() && interaction.customId.startsWith("sortie_")) {
-    return handleSortieButton(interaction);
+    try {
+      await handleSortieButton(interaction);
+    } catch (error) {
+      console.error("Erreur Bouton Sortie:", error);
+      try {
+        if (interaction.replied) await interaction.followUp(errPayload);
+        else if (interaction.deferred)
+          await interaction.editReply({ content: errPayload.content });
+        else await interaction.reply(errPayload);
+      } catch (_) {}
+    }
+    return;
   }
 
   // 2. Modals du module Sorties
@@ -145,7 +161,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
     interaction.isModalSubmit() &&
     interaction.customId.startsWith("modal_sortie_")
   ) {
-    return handleSortieModalSubmit(interaction);
+    try {
+      await handleSortieModalSubmit(interaction);
+    } catch (error) {
+      console.error("Erreur Modal Sortie:", error);
+      try {
+        if (interaction.replied) await interaction.followUp(errPayload);
+        else if (interaction.deferred)
+          await interaction.editReply({ content: errPayload.content });
+        else await interaction.reply(errPayload);
+      } catch (_) {}
+    }
+    return;
   }
 
   // 3. Commandes Slash
@@ -157,10 +184,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     await command.execute(interaction);
   } catch (error) {
     console.error(`Erreur Commande ${interaction.commandName}:`, error);
-    const errPayload = {
-      content: "Une erreur interne est survenue.",
-      flags: MessageFlags.Ephemeral,
-    };
     if (interaction.replied || interaction.deferred)
       await interaction.followUp(errPayload);
     else await interaction.reply(errPayload);
@@ -263,6 +286,8 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
 
 // Détection des nouvelles sorties dans le salon Forum
 client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
+  if (!newlyCreated) return;
+
   // On vérifie que le thread est bien dans le salon forum des sorties
   if (
     config.channels?.sortiesForum &&

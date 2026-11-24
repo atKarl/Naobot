@@ -40,11 +40,21 @@ async function handleNewSortieThread(thread) {
 }
 
 /**
+ * Résout un thread depuis l'interaction courante ou via fetch() s'il est absent du cache
+ */
+async function resolveThread(interaction, threadId) {
+  if (interaction.channel?.id === threadId) {
+    return interaction.channel;
+  }
+  return interaction.guild.channels.fetch(threadId).catch(() => null);
+}
+
+/**
  * Gère le clic sur les boutons d'une sortie
  */
 async function handleSortieButton(interaction) {
   const [, action, threadId] = interaction.customId.split("_");
-  const thread = interaction.guild.channels.cache.get(threadId);
+  const thread = await resolveThread(interaction, threadId);
 
   const isAuthor = thread && interaction.user.id === thread.ownerId;
   const isStaff =
@@ -60,6 +70,7 @@ async function handleSortieButton(interaction) {
   }
 
   if (action === "dismiss") {
+    await interaction.deferUpdate();
     await interaction.message.delete().catch(() => {});
     return;
   }
@@ -186,13 +197,37 @@ function parseDateInput(dateStr) {
     const month = parseInt(match[2], 10) - 1;
     let year = match[3] ? parseInt(match[3], 10) : todayParis.getFullYear();
 
-    // Si la date est déjà passée cette année, on reporte à l'année prochaine
-    if (!match[3]) {
-      const checkDate = new Date(year, month, day, 23, 59, 59);
-      if (checkDate.getTime() < todayParis.getTime()) {
-        year += 1;
-      }
+    if (month < 0 || month > 11 || day < 1 || day > 31) {
+      return null;
     }
+
+    const isValidCalendarDate = (y, m, d) => {
+      const check = new Date(Date.UTC(y, m, d));
+      return (
+        check.getUTCFullYear() === y &&
+        check.getUTCMonth() === m &&
+        check.getUTCDate() === d
+      );
+    };
+
+    if (match[3]) {
+      if (!isValidCalendarDate(year, month, day)) return null;
+      return { day, month, year };
+    }
+
+    // Rejeter immédiatement les dates impossibles même en année bissextile (ex: 31/02)
+    if (!isValidCalendarDate(2000, month, day)) return null;
+
+    // Si la date est déjà passée cette année, on reporte à l'année prochaine
+    const todayMonth = todayParis.getMonth();
+    const todayDay = todayParis.getDate();
+    if (month < todayMonth || (month === todayMonth && day < todayDay)) {
+      year += 1;
+    }
+
+    // Vérifier la validité calendaire pour l'année retenue (ex: 29/02 sur année non bissextile)
+    if (!isValidCalendarDate(year, month, day)) return null;
+
     return { day, month, year };
   }
 
@@ -221,32 +256,50 @@ function parseTimeInput(timeStr) {
 }
 
 /**
- * Calcule l'heure UTC exacte correspondant à l'heure locale de Paris (gère été/hiver)
- * sans risque de générer une Date invalide.
+ * Calcule le décalage UTC <-> Europe/Paris en millisecondes à un instant donné
+ */
+function getParisOffsetMs(utcMs) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(utcMs));
+  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  const asUtc = Date.UTC(
+    Number(map.year),
+    Number(map.month) - 1,
+    Number(map.day),
+    Number(map.hour),
+    Number(map.minute),
+    Number(map.second),
+  );
+  return asUtc - utcMs;
+}
+
+/**
+ * Calcule l'heure UTC exacte correspondant à l'heure locale de Paris (gère été/hiver et transitions DST)
  */
 function createDateInParisTime(day, month, year, hours, minutes) {
-  const utcTimestamp = Date.UTC(year, month, day, hours, minutes, 0);
-  const testDate = new Date(utcTimestamp);
-
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Europe/Paris",
-    hour: "numeric",
-    hour12: false,
-  });
-  const parisHour = parseInt(formatter.format(testDate), 10);
-  const offsetHours = (parisHour - hours + 24) % 24;
-
-  return new Date(utcTimestamp - offsetHours * 3600000);
+  const targetUtc = Date.UTC(year, month, day, hours, minutes, 0);
+  const offset1 = getParisOffsetMs(targetUtc);
+  const approxUtc = targetUtc - offset1;
+  const offset2 = getParisOffsetMs(approxUtc);
+  return new Date(targetUtc - offset2);
 }
 
 /**
  * Traite la soumission du formulaire et crée l'événement Discord
  */
 async function handleSortieModalSubmit(interaction) {
-  const threadId = interaction.customId.replace("modal_sortie_", "");
-  const thread = interaction.guild.channels.cache.get(threadId);
-
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const threadId = interaction.customId.replace("modal_sortie_", "");
+  const thread = await resolveThread(interaction, threadId);
 
   const title = interaction.fields.getTextInputValue("title");
   const dateStr = interaction.fields.getTextInputValue("date");
@@ -338,4 +391,6 @@ module.exports = {
   handleNewSortieThread,
   handleSortieButton,
   handleSortieModalSubmit,
+  parseDateInput,
+  createDateInParisTime,
 };
