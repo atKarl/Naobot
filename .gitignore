@@ -12,3 +12,6 @@ node_modules/
 # Logs et Système
 npm-debug.log*
 .DS_Store
+
+# Plans locaux (délégation LLM)
+_plan/
