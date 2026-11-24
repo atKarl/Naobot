@@ -13,5 +13,6 @@
     "sortiesForum": "ID_DU_SALON"
   },
   "ignoredChannels": ["ID1", "ID2"],
-  "cooldown": 60000
+  "cooldown": 60000,
+  "inactivityDays": 90
 }

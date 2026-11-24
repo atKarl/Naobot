@@ -28,27 +28,28 @@ module.exports = {
 
     await interaction.deferReply();
 
-    const descriptionLines = await Promise.all(
-      topUsers.map(async (u, index) => {
-        let rankEmoji = `**${index + 1}.**`;
-        if (index === 0) rankEmoji = "🥇";
-        if (index === 1) rankEmoji = "🥈";
-        if (index === 2) rankEmoji = "🥉";
+    const missingIds = topUsers
+      .map((u) => u.user_id)
+      .filter((id) => !interaction.guild.members.cache.has(id));
 
-        let displayName = u.username;
+    if (missingIds.length > 0) {
+      await interaction.guild.members
+        .fetch({ user: missingIds })
+        .catch(() => {});
+    }
 
-        try {
-          const member = await interaction.guild.members.fetch(u.user_id);
-          displayName = member.displayName;
-        } catch (e) {
-          // Si le membre a quitté, on garde le username de la DB
-        }
+    const descriptionLines = topUsers.map((u, index) => {
+      let rankEmoji = `**${index + 1}.**`;
+      if (index === 0) rankEmoji = "🥇";
+      if (index === 1) rankEmoji = "🥈";
+      if (index === 2) rankEmoji = "🥉";
 
-        const cleanName = escapeMarkdown(displayName);
+      const member = interaction.guild.members.cache.get(u.user_id);
+      const displayName = member ? member.displayName : u.username;
+      const cleanName = escapeMarkdown(displayName);
 
-        return `${rankEmoji} **${cleanName}** — \`${u.score} pts\``;
-      }),
-    );
+      return `${rankEmoji} **${cleanName}** — \`${u.score} pts\``;
+    });
 
     embed.setDescription(descriptionLines.join("\n"));
 

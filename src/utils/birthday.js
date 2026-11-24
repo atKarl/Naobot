@@ -1,5 +1,4 @@
 const db = require("../database");
-const path = require("path");
 const config = require("../../config.json");
 const { MessageFlags, escapeMarkdown } = require("discord.js");
 

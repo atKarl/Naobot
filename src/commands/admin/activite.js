@@ -8,7 +8,7 @@ const {
 const db = require("../../database");
 const config = require("../../../config.json");
 
-const INACTIVE_THRESHOLD_DAYS = 90;
+const INACTIVE_THRESHOLD_DAYS = config.inactivityDays ?? 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function formatTimestamp(ms, emptyText = "*Aucune (sur les 365 derniers jours)*") {
@@ -58,7 +58,7 @@ module.exports = {
       Boolean(config.roles?.inactive) &&
       Boolean(member?.roles.cache.has(config.roles.inactive));
 
-    // Calcul du statut d'inactivité (seuil à 90 jours)
+    // Calcul du statut d'inactivité
     let inactivityStatus;
     if (!member) {
       inactivityStatus = "⚪ Membre absent du serveur";
@@ -116,7 +116,7 @@ module.exports = {
       )
       .addFields(
         {
-          name: "⏳ Dernière activité retenue (compteur 90 jours)",
+          name: `⏳ Dernière activité retenue (compteur ${INACTIVE_THRESHOLD_DAYS} jours)`,
           value: formatTimestamp(
             details.lastActive,
             "*Jamais enregistrée*",

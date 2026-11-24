@@ -49,6 +49,8 @@ try {
   process.exit(1);
 }
 
+const INACTIVITY_DAYS = config.inactivityDays ?? 90;
+
 const db = require("./src/database");
 
 db.initDb();
@@ -137,7 +139,7 @@ client.on(Events.Error, (error) => {
   console.error("❌ [DISCORD ERROR] Erreur de passerelle / client :", error);
 });
 
-client.once(Events.ClientReady, (c) => {
+client.once(Events.ClientReady, async (c) => {
   console.log(`✅ Prêt ! Connecté en tant que ${c.user.tag}`);
   c.user.setPresence({
     activities: [
@@ -148,22 +150,19 @@ client.once(Events.ClientReady, (c) => {
   console.log(`⏱️ Cooldown anti-spam : ${config.cooldown / 1000}s`);
   initCronJobs();
 
-  // Rafraîchissement de la liste des anniversaires au démarrage.
-  // Délai de 3s pour s'assurer que le cache des membres est chargé.
-  setTimeout(async () => {
-    try {
-      const guild = c.guilds.cache.get(config.guildId);
-      if (guild) {
-        const { refreshBirthdayMessage } = require("./src/utils/birthday");
-        await refreshBirthdayMessage(guild);
-        console.log(
-          "[ANNIVERSAIRES] ✅ Liste persistante rafraîchie au démarrage.",
-        );
-      }
-    } catch (err) {
-      console.error("[ANNIVERSAIRES] Erreur au démarrage :", err.message);
+  // Rafraîchissement de la liste des anniversaires au démarrage
+  try {
+    const guild = c.guilds.cache.get(config.guildId);
+    if (guild) {
+      const { refreshBirthdayMessage } = require("./src/utils/birthday");
+      await refreshBirthdayMessage(guild);
+      console.log(
+        "[ANNIVERSAIRES] ✅ Liste persistante rafraîchie au démarrage.",
+      );
     }
-  }, 3000);
+  } catch (err) {
+    console.error("[ANNIVERSAIRES] Erreur au démarrage :", err.message);
+  }
 });
 
 // Gestion des interactions (Commandes Slash, Boutons, Modals)
@@ -305,7 +304,7 @@ client.on(Events.GuildMemberRemove, async (member) => {
   }
 });
 
-// Détection du retrait manuel du rôle Inactif (réinitialise le cooldown de 90 jours)
+// Détection du retrait manuel du rôle Inactif (réinitialise le cooldown d'inactivité)
 client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
   const inactiveRoleId = config.roles?.inactive;
   if (!inactiveRoleId) return;
@@ -317,7 +316,7 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
   if (hadRole && !hasRole) {
     db.resetUserInactivity(newMember.id, newMember.user.username);
     console.log(
-      `[INACTIVITÉ] Rôle inactif retiré pour ${newMember.user.tag}. Cooldown de 90 jours réinitialisé.`,
+      `[INACTIVITÉ] Rôle inactif retiré pour ${newMember.user.tag}. Cooldown de ${INACTIVITY_DAYS} jours réinitialisé.`,
     );
   }
 });
@@ -370,7 +369,7 @@ function initCronJobs() {
       if (!guild) return;
       if (!config.roles?.inactive) return;
 
-      const inactiveUsers = db.getInactiveUsers(90);
+      const inactiveUsers = db.getInactiveUsers(INACTIVITY_DAYS);
       if (inactiveUsers.length === 0) return;
 
       console.log(`[CRON] ${inactiveUsers.length} utilisateurs à traiter.`);
