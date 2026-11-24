@@ -64,6 +64,9 @@ module.exports = {
       inactivityStatus = "⚪ Membre absent du serveur";
     } else if (hasInactiveRole) {
       inactivityStatus = "🔴 Possède actuellement le rôle **Inactif**";
+    } else if (isOptOut) {
+      inactivityStatus =
+        "⚪ Suivi désactivé (exempté du rôle **Inactif** automatique)";
     } else if (details.lastActive) {
       const elapsedDays = Math.floor((Date.now() - details.lastActive) / DAY_MS);
       const remainingDays = INACTIVE_THRESHOLD_DAYS - elapsedDays;

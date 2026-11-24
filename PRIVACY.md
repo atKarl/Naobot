@@ -17,7 +17,8 @@ Politique de Confidentialité - NaoBot
    Les données de profil (ID et pseudonyme) sont conservées tant que l'utilisateur est présent sur le serveur.
 4. Vos droits (RGPD)
    Vous disposez d'un droit total sur vos données :
-   Droit d'opposition : Utilisez la commande /privacy optout pour arrêter immédiatement tout suivi.
+   Droit d'opposition : Utilisez la commande /privacy optout pour arrêter immédiatement tout suivi. Les membres en opt-out sont également exemptés de l'attribution automatique du rôle « Inactif ».
    Droit de suppression : Contactez un administrateur pour demander la suppression totale de vos données de la base SQL.
+   Membre du Mois (Hall of Fame) : Le classement historique public conserve le palmarès mensuel du serveur ; un administrateur peut procéder à sa suppression ou anonymisation sur simple demande.
 5. Sécurité
    Les données sont stockées dans une base de données SQLite sécurisée sur un serveur privé et ne sont jamais partagées, vendues ou transmises à des tiers.

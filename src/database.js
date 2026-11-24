@@ -47,25 +47,6 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_motm_user ON member_of_month_history(user_id);
   `);
 
-  // Insérer l'historique existant si la table est vide
-  try {
-    const historyCount = db
-      .prepare("SELECT COUNT(*) as count FROM member_of_month_history")
-      .get();
-    if (historyCount.count === 0) {
-      db.prepare(
-        `
-        INSERT INTO member_of_month_history (user_id, username, month, year, score, timestamp) VALUES
-        ('692790029260685489', 'Flavien', 2, 2026, 443, 1709251200000),
-        ('692790029260685489', 'Flavien', 3, 2026, 524, 1711929600000)
-      `,
-      ).run();
-      console.log("Historique membre du mois initialisé.");
-    }
-  } catch (error) {
-    console.error("Erreur lors de l'initialisation de l'historique:", error);
-  }
-
   try {
     db.prepare("SELECT tracking_enabled FROM users LIMIT 1").get();
   } catch (error) {
@@ -217,7 +198,7 @@ function getInactiveUsersList(days) {
   const thresholdDate = Date.now() - days * 24 * 60 * 60 * 1000;
   return db
     .prepare(
-      `SELECT user_id, username, last_active_timestamp FROM users WHERE last_active_timestamp < ? ORDER BY last_active_timestamp ASC`,
+      `SELECT user_id, username, last_active_timestamp FROM users WHERE tracking_enabled = 1 AND last_active_timestamp < ? ORDER BY last_active_timestamp ASC`,
     )
     .all(thresholdDate);
 }
@@ -226,7 +207,7 @@ function getInactiveUsers(daysThreshold) {
   const thresholdDate = Date.now() - daysThreshold * 24 * 60 * 60 * 1000;
   return db
     .prepare(
-      `SELECT user_id, last_active_timestamp FROM users WHERE last_active_timestamp < ?`,
+      `SELECT user_id, last_active_timestamp FROM users WHERE tracking_enabled = 1 AND last_active_timestamp < ?`,
     )
     .all(thresholdDate);
 }
@@ -285,8 +266,10 @@ function createBackup(destinationPath) {
   return db.backup(destinationPath);
 }
 
-function getAllUserIds() {
-  const rows = db.prepare("SELECT user_id FROM users").all();
+function getAllTrackedUserIds() {
+  const rows = db
+    .prepare("SELECT user_id FROM users UNION SELECT user_id FROM birthdays")
+    .all();
   return rows.map((row) => row.user_id);
 }
 
@@ -577,7 +560,7 @@ module.exports = {
   pruneLogs,
   removeUserData,
   createBackup,
-  getAllUserIds,
+  getAllTrackedUserIds,
   setBirthday,
   deleteBirthday,
   getBirthday,

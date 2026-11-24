@@ -4,6 +4,7 @@ const {
   MessageFlags,
 } = require("discord.js");
 const db = require("../../database");
+const { refreshBirthdayMessage } = require("../../utils/birthday");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -36,7 +37,7 @@ module.exports = {
       );
     }
 
-    const dbUserIds = db.getAllUserIds();
+    const dbUserIds = db.getAllTrackedUserIds();
 
     // 2. Identification des fantômes
     const ghosts = dbUserIds.filter((dbId) => !discordMembers.has(dbId));
@@ -57,6 +58,10 @@ module.exports = {
     for (const userId of ghosts) {
       db.removeUserData(userId);
       deletedCount++;
+    }
+
+    if (deletedCount > 0) {
+      await refreshBirthdayMessage(interaction.guild);
     }
 
     await interaction.editReply(
