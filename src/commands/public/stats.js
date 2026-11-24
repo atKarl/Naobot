@@ -22,6 +22,14 @@ module.exports = {
   async execute(interaction) {
     const targetUser =
       interaction.options.getUser("target") || interaction.user;
+
+    if (targetUser.bot) {
+      return interaction.reply({
+        content: "🤖 Les bots ne sont pas suivis par le système d'activité.",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     const stats = db.getUserWeightedScore(targetUser.id);
     const isSelf = targetUser.id === interaction.user.id;
     const isOptOut = stats.tracking === 0;
@@ -33,7 +41,7 @@ module.exports = {
     // Si l'utilisateur cible a désactivé le suivi (Opt-out)
     if (isOptOut && !isSelf) {
       embed
-        .setTitle(`Statistiques de ${targetUser.username}`)
+        .setTitle(`Statistiques de ${escapeMarkdown(targetUser.username)}`)
         .setDescription(
           "🛑 **Cet utilisateur a désactivé le suivi d'activité.**\nSes statistiques sont privées.",
         )

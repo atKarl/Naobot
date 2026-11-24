@@ -1,7 +1,7 @@
 const db = require("../database");
 const path = require("path");
 const config = require("../../config.json");
-const { MessageFlags } = require("discord.js");
+const { MessageFlags, escapeMarkdown } = require("discord.js");
 
 const MONTH_NAMES_CAP = [
   "",
@@ -55,7 +55,7 @@ async function buildBirthdayChunks(guild) {
     const displayName = member ? member.displayName : entry.username;
 
     // Format : PseudoSurLeServeur - @Mention
-    const nameDisplay = `**${displayName}** - <@${entry.user_id}>`;
+    const nameDisplay = `**${escapeMarkdown(displayName)}** - <@${entry.user_id}>`;
 
     lines.push(
       `• ${String(entry.day).padStart(2, "0")}/${String(entry.month).padStart(2, "0")} — ${nameDisplay}`,
