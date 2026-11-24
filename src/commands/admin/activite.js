@@ -1,5 +1,6 @@
 const {
   SlashCommandBuilder,
+  InteractionContextType,
   EmbedBuilder,
   PermissionFlagsBits,
   MessageFlags,
@@ -24,6 +25,7 @@ module.exports = {
       "ADMIN: Affiche la dernière activité connue d'un membre (réactions, fichiers, messages)",
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setContexts(InteractionContextType.Guild)
     .addUserOption((option) =>
       option
         .setName("membre")

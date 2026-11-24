@@ -1,10 +1,15 @@
-const { SlashCommandBuilder, MessageFlags } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  InteractionContextType,
+  MessageFlags,
+} = require("discord.js");
 const db = require("../../database");
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("privacy")
     .setDescription("Gérer vos préférences de suivi d'activité")
+    .setContexts(InteractionContextType.Guild)
     .addStringOption((option) =>
       option
         .setName("action")

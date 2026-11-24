@@ -1,5 +1,6 @@
 const {
   SlashCommandBuilder,
+  InteractionContextType,
   PermissionFlagsBits,
   MessageFlags,
 } = require("discord.js");
@@ -11,6 +12,7 @@ module.exports = {
     .setName("anniversaire-supprimer-staff")
     .setDescription("ADMIN: Supprime l'anniversaire d'un autre membre")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setContexts(InteractionContextType.Guild)
     .addUserOption((opt) =>
       opt
         .setName("membre")

@@ -1,4 +1,8 @@
-const { SlashCommandBuilder, MessageFlags } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  InteractionContextType,
+  MessageFlags,
+} = require("discord.js");
 const db = require("../../database");
 const { isValidDate, refreshBirthdayMessage, MONTH_NAMES_CAP } = require("../../utils/birthday");
 
@@ -6,6 +10,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("anniversaire")
     .setDescription("Enregistre ta date d'anniversaire")
+    .setContexts(InteractionContextType.Guild)
     .addIntegerOption((opt) =>
       opt.setName("jour").setDescription("Ton jour (1-31)").setRequired(true).setMinValue(1).setMaxValue(31)
     )

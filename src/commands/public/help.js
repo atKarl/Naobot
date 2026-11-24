@@ -1,5 +1,6 @@
 const {
   SlashCommandBuilder,
+  InteractionContextType,
   EmbedBuilder,
   MessageFlags,
 } = require("discord.js");
@@ -7,7 +8,8 @@ const {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("help")
-    .setDescription("Guide du serveur : Points, Rangs et Vie Privée"),
+    .setDescription("Guide du serveur : Points, Rangs et Vie Privée")
+    .setContexts(InteractionContextType.Guild),
 
   async execute(interaction) {
     const THEME_COLOR = 0x00a650;

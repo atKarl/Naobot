@@ -1,5 +1,6 @@
 const {
   SlashCommandBuilder,
+  InteractionContextType,
   EmbedBuilder,
   MessageFlags,
   escapeMarkdown,
@@ -12,6 +13,7 @@ module.exports = {
     .setDescription(
       "Affiche vos statistiques d'activité ou celles d'un autre membre",
     )
+    .setContexts(InteractionContextType.Guild)
     .addUserOption((option) =>
       option
         .setName("target")
@@ -36,7 +38,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(0x0099ff)
-      .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }));
+      .setThumbnail(targetUser.displayAvatarURL());
 
     // Si l'utilisateur cible a désactivé le suivi (Opt-out)
     if (isOptOut && !isSelf) {

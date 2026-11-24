@@ -1,5 +1,6 @@
 const {
   SlashCommandBuilder,
+  InteractionContextType,
   PermissionFlagsBits,
   MessageFlags,
 } = require("discord.js");
@@ -12,7 +13,8 @@ module.exports = {
     .setDescription(
       "ADMIN: Supprime de la DB les membres qui ont quitté le serveur (Nettoyage Fantômes)",
     )
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setContexts(InteractionContextType.Guild),
 
   async execute(interaction) {
     // Sécurité : Admin seulement

@@ -1,5 +1,6 @@
 const {
   SlashCommandBuilder,
+  InteractionContextType,
   EmbedBuilder,
   PermissionFlagsBits,
   MessageFlags,
@@ -9,7 +10,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("post-faq")
     .setDescription("ADMIN: Poste la FAQ officielle du bot dans ce salon")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setContexts(InteractionContextType.Guild),
 
   async execute(interaction) {
     const NANTES_COLOR = 0x00a650;

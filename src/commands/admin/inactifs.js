@@ -1,5 +1,6 @@
 const {
   SlashCommandBuilder,
+  InteractionContextType,
   PermissionFlagsBits,
   MessageFlags,
   AttachmentBuilder,
@@ -18,7 +19,8 @@ module.exports = {
         .setMinValue(1)
         .setMaxValue(3650),
     )
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setContexts(InteractionContextType.Guild),
 
   async execute(interaction) {
     if (

@@ -1,5 +1,6 @@
 const {
   SlashCommandBuilder,
+  InteractionContextType,
   EmbedBuilder,
   escapeMarkdown,
 } = require("discord.js");
@@ -8,7 +9,8 @@ const db = require("../../database");
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("top")
-    .setDescription("Affiche le classement des 10 membres les plus actifs"),
+    .setDescription("Affiche le classement des 10 membres les plus actifs")
+    .setContexts(InteractionContextType.Guild),
 
   async execute(interaction) {
     // Utiliser le système de pondération pour cohérence avec le membre du mois

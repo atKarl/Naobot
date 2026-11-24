@@ -1,4 +1,9 @@
-const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  InteractionContextType,
+  EmbedBuilder,
+  MessageFlags,
+} = require("discord.js");
 const db = require("../../database");
 
 const MONTH_NAMES = [
@@ -19,7 +24,8 @@ const MONTH_NAMES = [
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("halloffame")
-    .setDescription("Affiche l'historique des membres du mois"),
+    .setDescription("Affiche l'historique des membres du mois")
+    .setContexts(InteractionContextType.Guild),
 
   async execute(interaction) {
     const history = db.getAllWinnersHistory();

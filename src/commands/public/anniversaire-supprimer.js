@@ -1,11 +1,16 @@
-const { SlashCommandBuilder, MessageFlags } = require("discord.js");
+const {
+  SlashCommandBuilder,
+  InteractionContextType,
+  MessageFlags,
+} = require("discord.js");
 const db = require("../../database");
 const { refreshBirthdayMessage } = require("../../utils/birthday");
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("anniversaire-supprimer")
-    .setDescription("Supprime ton anniversaire de la liste"),
+    .setDescription("Supprime ton anniversaire de la liste")
+    .setContexts(InteractionContextType.Guild),
 
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
