@@ -545,6 +545,13 @@ function getUserActivityDetails(userId, reactionLimit = 5) {
   };
 }
 
+function closeDb() {
+  if (db.open) {
+    db.close();
+    console.log("Base de données fermée proprement.");
+  }
+}
+
 module.exports = {
   initDb,
   logActivity,
@@ -572,4 +579,5 @@ module.exports = {
   getTopUsersWithWeights,
   calculateWinnerWithPenalty,
   getUserActivityDetails,
+  closeDb,
 };

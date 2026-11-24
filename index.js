@@ -58,13 +58,6 @@ process.on("unhandledRejection", (reason, promise) => {
   console.error(reason);
 });
 
-process.on("uncaughtException", (error) => {
-  console.error(
-    "❌ [ANTI-CRASH] Exception non interceptée (uncaughtException) :",
-  );
-  console.error(error);
-});
-
 process.on("uncaughtExceptionMonitor", (error, origin) => {
   console.error("❌ [ANTI-CRASH] Exception surveillée :", error, origin);
 });
@@ -78,6 +71,45 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+});
+
+let isShuttingDown = false;
+
+async function shutdown(signal, exitCode = 0) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`🛑 Arrêt du bot (${signal})...`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error("⏱️ Timeout lors de l'arrêt propre, sortie forcée.");
+    process.exit(exitCode || 1);
+  }, 5000);
+  forceExitTimer.unref();
+
+  try {
+    cron.getTasks().forEach((task) => task.stop());
+    await client.destroy();
+  } catch (err) {
+    console.error("Erreur lors de l'arrêt du client Discord :", err);
+  } finally {
+    clearTimeout(forceExitTimer);
+    try {
+      db.closeDb();
+    } catch (err) {
+      console.error("Erreur lors de la fermeture SQLite :", err);
+    }
+    process.exit(exitCode);
+  }
+}
+
+process.on("SIGINT", () => shutdown("SIGINT", 0));
+process.on("SIGTERM", () => shutdown("SIGTERM", 0));
+process.on("uncaughtException", (error) => {
+  console.error(
+    "❌ [ANTI-CRASH] Exception non interceptée (uncaughtException) :",
+  );
+  console.error(error);
+  shutdown("uncaughtException", 1);
 });
 
 // --- CHARGEMENT DES COMMANDES ---
