@@ -1,5 +1,5 @@
 const Database = require("better-sqlite3");
-const path = require("path");
+const path = require("node:path");
 
 const db = new Database(path.join(__dirname, "../data.db"), { verbose: null });
 db.pragma("journal_mode = WAL");
