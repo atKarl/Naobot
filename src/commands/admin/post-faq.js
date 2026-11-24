@@ -44,7 +44,7 @@ module.exports = {
         {
           name: "⌨️ Commandes utiles",
           value:
-            "• `/stats` : Voir votre score.\n• `/top` : Voir le classement.\n• `/privacy` : Activer/Désactiver le suivi.\n• `/help` : Obtenir de l'aide sur les commandes.\n• `/anniversaire` : Ajouter votre date d'anniversaire au calendrier du serveur.",
+            "• `/stats` : Voir votre score.\n• `/top` : Voir le classement.\n• `/halloffame` : Voir l'historique des membres du mois.\n• `/privacy` : Activer/Désactiver le suivi.\n• `/anniversaire` : Ajouter votre date d'anniversaire au calendrier du serveur.\n• `/anniversaire-supprimer` : Supprimer votre anniversaire de la liste.\n• `/help` : Obtenir de l'aide sur les commandes.",
         },
       )
       .setFooter({
@@ -53,8 +53,33 @@ module.exports = {
       })
       .setTimestamp();
 
+    const perms = interaction.channel?.permissionsFor(
+      interaction.guild.members.me,
+    );
+    if (
+      !perms?.has([
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.EmbedLinks,
+      ])
+    ) {
+      return interaction.reply({
+        content:
+          "⛔ Permissions insuffisantes dans ce salon (`ViewChannel`, `SendMessages`, `EmbedLinks` requises).",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     // On envoie l'embed dans le salon actuel
-    await interaction.channel.send({ embeds: [faqEmbed] });
+    try {
+      await interaction.channel.send({ embeds: [faqEmbed] });
+    } catch (err) {
+      console.error("[POST-FAQ] Erreur lors de l'envoi :", err);
+      return interaction.reply({
+        content: "❌ Impossible de poster la FAQ dans ce salon.",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
 
     // On répond à l'admin de manière éphémère pour confirmer
     await interaction.reply({

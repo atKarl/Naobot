@@ -4,21 +4,23 @@ Un bot Discord fait maison pour animer notre serveur, suivre l'activité des mem
 
 ## ✨ Fonctionnalités
 
-- 📊 **Tracking d'activité** : Compte les messages, les réactions et les fichiers partagés.
-- 🏆 **Membre du Mois** : Elit automatiquement le membre le plus actif chaque 1er du mois.
-- 💤 **Gestion d'inactivité** : Attribue un rôle "Inactif" après 90 jours sans nouvelles.
-- 🛡️ **Respect de la vie privée** : Commande `/privacy` pour activer/désactiver son propre suivi.
-- ⚙️ **Outils Admin** : Scan profond de l'historique et rapports d'inactivité en format .txt.
+- 📊 **Tracking d'activité** : Compte les messages, les réactions et les fichiers partagés (`/stats`, `/top`).
+- 🏆 **Membre du Mois** : Élit automatiquement le membre le plus actif chaque 1er du mois avec historique (`/halloffame`).
+- 🎂 **Anniversaires** : Liste persistante mise à jour automatiquement et annonces chaque matin à 09h00 (`/anniversaire`, `/anniversaire-supprimer`).
+- 📅 **Sorties calendrier** : Détection des nouveaux fils du forum dédié et création d'événements Discord via modal interactif.
+- 💤 **Gestion d'inactivité** : Attribue un rôle "Inactif" après 90 jours sans nouvelles (seuil configurable via `inactivityDays`).
+- 🛡️ **Respect de la vie privée** : Commande `/privacy` pour activer/désactiver son propre suivi et suppression automatique des données au départ du serveur.
+- ⚙️ **Outils Admin** : Consultation détaillée (`/activite`), scan profond (`/scan`), rapports d'inactivité (`/inactifs`), nettoyage DB (`/clean-db`), FAQ (`/post-faq`) et gestion staff des anniversaires.
 
 ## 🚀 Installation
 
 ### 1. Configuration Discord
 
 1. Créez une application sur le [Discord Developer Portal](https://discord.com/developers/applications).
-2. **Bot** : Activez impérativement les 3 **Privileged Intents** (_Presence_, _Server Members_, _Message Content_).
+2. **Bot** : Activez impérativement les 2 **Privileged Intents** nécessaires (**_Server Members_** et **_Message Content_**).
 3. **OAuth2** : Générez un lien d'invitation avec :
    - Scopes : `bot` + `applications.commands`
-   - Permissions : _Manage Roles, View Channels, Send Messages, Embed Links, Attach Files, Read History_.
+   - Permissions : _Manage Roles, Manage Events, View Channels, Send Messages, Send Messages in Threads, Manage Messages, Embed Links, Attach Files, Read Message History_.
 4. Invitez le bot sur votre serveur.
 
 ### 2. Setup Technique
@@ -32,12 +34,12 @@ cp config.json.example config.json
 
 ### 3. Lancement
 
-Renommez config.json.example en config.json et remplissez le avec vos IDs (Token, GuildID, Rôles...), puis exécutez :
+Renommez `config.json.example` en `config.json` et remplissez-le avec vos IDs (Token, GuildID, Rôles, Salons...), puis exécutez :
 
 ```bash
-node deploy-commands.js  # Enregistre les commandes (/)
+npm run deploy  # Enregistre les commandes (/)
 
-node index.js            # Lance le bot (ou pm2 start index.js en production)
+npm start       # Lance le bot (ou pm2 start index.js en production)
 ```
 
 ⚠️ Note importante : Dans les paramètres de votre serveur Discord, placez le rôle du bot tout en haut de la liste (au-dessus des rôles "Inactif" et "Membre du Mois") pour qu'il puisse les gérer sans erreur de permission.

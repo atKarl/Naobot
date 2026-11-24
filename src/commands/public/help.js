@@ -33,7 +33,7 @@ module.exports = {
         },
         {
           name: "🤖 Commandes",
-          value: `\`/stats\` : Voir vos points.\n\`/top\` : Voir le classement.\n\`/privacy\` : Gérer vos données.\n\`/help\` : Afficher ce guide.\n\`/anniversaire\` : ajouter votre date d'anniversaire au calendrier du serveur.`,
+          value: `\`/stats\` : Voir vos points.\n\`/top\` : Voir le classement.\n\`/halloffame\` : Voir l'historique des membres du mois.\n\`/privacy\` : Gérer vos données.\n\`/anniversaire\` : Ajouter votre date d'anniversaire au calendrier du serveur.\n\`/anniversaire-supprimer\` : Supprimer votre anniversaire de la liste.\n\`/help\` : Afficher ce guide.`,
         },
       )
       .setFooter({
