@@ -1,4 +1,4 @@
-const {
+import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -12,14 +12,30 @@ const {
   GuildScheduledEventEntityType,
   PermissionFlagsBits,
   MessageFlags,
-} = require("discord.js");
+} from "discord.js";
+import type {
+  AnyThreadChannel,
+  ButtonInteraction,
+  ModalSubmitInteraction,
+} from "discord.js";
+
+interface ParsedDate {
+  day: number;
+  month: number;
+  year: number;
+}
+
+interface ParsedTime {
+  hours: number;
+  minutes: number;
+}
 
 /**
  * Envoie le message d'assistance dans le nouveau fil de discussion
  */
-async function handleNewSortieThread(thread) {
+async function handleNewSortieThread(thread: AnyThreadChannel): Promise<void> {
   try {
-    const row = new ActionRowBuilder().addComponents(
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`sortie_create_${thread.id}`)
         .setLabel("📅 Ajouter au calendrier")
@@ -45,31 +61,42 @@ async function handleNewSortieThread(thread) {
 /**
  * Résout un thread depuis l'interaction courante ou via fetch() s'il est absent du cache
  */
-async function resolveThread(interaction, threadId) {
-  if (interaction.channel?.id === threadId) {
+async function resolveThread(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  threadId: string,
+): Promise<AnyThreadChannel | null> {
+  if (interaction.channel?.id === threadId && interaction.channel.isThread()) {
     return interaction.channel;
   }
-  return interaction.guild.channels.fetch(threadId).catch(() => null);
+  if (!interaction.guild) return null;
+  const fetched = await interaction.guild.channels
+    .fetch(threadId)
+    .catch(() => null);
+  return fetched?.isThread() ? fetched : null;
 }
 
 /**
  * Gère le clic sur les boutons d'une sortie
  */
-async function handleSortieButton(interaction) {
+async function handleSortieButton(interaction: ButtonInteraction): Promise<void> {
   const [, action, threadId] = interaction.customId.split("_");
+  if (!action || !threadId) return;
+
   const thread = await resolveThread(interaction, threadId);
 
-  const isAuthor = thread && interaction.user.id === thread.ownerId;
-  const isStaff =
-    interaction.member.permissions.has(PermissionFlagsBits.ManageEvents) ||
-    interaction.member.permissions.has(PermissionFlagsBits.ManageGuild);
+  const isAuthor = thread !== null && interaction.user.id === thread.ownerId;
+  const isStaff = Boolean(
+    interaction.memberPermissions?.has(PermissionFlagsBits.ManageEvents) ||
+      interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild),
+  );
 
   if (!isAuthor && !isStaff) {
-    return interaction.reply({
+    await interaction.reply({
       content:
         "⛔ Seul l'organisateur de cette sortie ou un modérateur peut planifier cet événement.",
       flags: MessageFlags.Ephemeral,
     });
+    return;
   }
 
   if (action === "dismiss") {
@@ -167,7 +194,7 @@ async function handleSortieButton(interaction) {
 /**
  * Analyse la date saisie (JJ/MM, demain, vendredi, etc.)
  */
-function parseDateInput(dateStr) {
+function parseDateInput(dateStr: string): ParsedDate | null {
   const lower = dateStr.trim().toLowerCase();
   const now = new Date();
   const todayParis = new Date(
@@ -217,7 +244,7 @@ function parseDateInput(dateStr) {
 
   // Format standard : JJ/MM ou JJ/MM/AAAA
   const match = lower.match(/^(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{4}))?$/);
-  if (match) {
+  if (match && match[1] && match[2]) {
     const day = parseInt(match[1], 10);
     const month = parseInt(match[2], 10) - 1;
     let year = match[3] ? parseInt(match[3], 10) : todayParis.getFullYear();
@@ -226,7 +253,7 @@ function parseDateInput(dateStr) {
       return null;
     }
 
-    const isValidCalendarDate = (y, m, d) => {
+    const isValidCalendarDate = (y: number, m: number, d: number): boolean => {
       const check = new Date(Date.UTC(y, m, d));
       return (
         check.getUTCFullYear() === y &&
@@ -262,11 +289,11 @@ function parseDateInput(dateStr) {
 /**
  * Analyse l'heure saisie (19h, 19h30, 19:30)
  */
-function parseTimeInput(timeStr) {
+function parseTimeInput(timeStr: string): ParsedTime | null {
   const match = timeStr
     .trim()
     .match(/^(\d{1,2})(?:[h:H](\d{1,2})?|:(\d{2}))?$/);
-  if (!match) return null;
+  if (!match || !match[1]) return null;
 
   const hours = parseInt(match[1], 10);
   const minutes = match[2]
@@ -283,7 +310,7 @@ function parseTimeInput(timeStr) {
 /**
  * Calcule le décalage UTC <-> Europe/Paris en millisecondes à un instant donné
  */
-function getParisOffsetMs(utcMs) {
+function getParisOffsetMs(utcMs: number): number {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Paris",
     year: "numeric",
@@ -309,7 +336,13 @@ function getParisOffsetMs(utcMs) {
 /**
  * Calcule l'heure UTC exacte correspondant à l'heure locale de Paris (gère été/hiver et transitions DST)
  */
-function createDateInParisTime(day, month, year, hours, minutes) {
+function createDateInParisTime(
+  day: number,
+  month: number,
+  year: number,
+  hours: number,
+  minutes: number,
+): Date {
   const targetUtc = Date.UTC(year, month, day, hours, minutes, 0);
   const offset1 = getParisOffsetMs(targetUtc);
   const approxUtc = targetUtc - offset1;
@@ -320,8 +353,17 @@ function createDateInParisTime(day, month, year, hours, minutes) {
 /**
  * Traite la soumission du formulaire et crée l'événement Discord
  */
-async function handleSortieModalSubmit(interaction) {
+async function handleSortieModalSubmit(
+  interaction: ModalSubmitInteraction,
+): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (!interaction.guild) {
+    await interaction.editReply(
+      "❌ Cette action doit être effectuée sur un serveur.",
+    );
+    return;
+  }
 
   const threadId = interaction.customId.replace("modal_sortie_", "");
   const thread = await resolveThread(interaction, threadId);
@@ -335,16 +377,18 @@ async function handleSortieModalSubmit(interaction) {
   // 1. Validation de la date et de l'heure
   const dateInfo = parseDateInput(dateStr);
   if (!dateInfo) {
-    return interaction.editReply(
+    await interaction.editReply(
       "❌ **Date invalide !**\nExemples : `23/09`, `demain`, `vendredi` ou `23/09/2026`.",
     );
+    return;
   }
 
   const timeInfo = parseTimeInput(timeStr);
   if (!timeInfo) {
-    return interaction.editReply(
+    await interaction.editReply(
       "❌ **Heure invalide !**\nExemples : `19h30`, `20h` ou `14:00`.",
     );
+    return;
   }
 
   const startDate = createDateInParisTime(
@@ -357,23 +401,26 @@ async function handleSortieModalSubmit(interaction) {
 
   // Sécurité anti-crash
   if (isNaN(startDate.getTime())) {
-    return interaction.editReply(
+    await interaction.editReply(
       "❌ **Erreur d'analyse de la date.** Vérifiez votre saisie.",
     );
+    return;
   }
 
   if (startDate.getTime() <= Date.now()) {
-    return interaction.editReply(
+    await interaction.editReply(
       "❌ **La sortie doit être programmée dans le futur !**",
     );
+    return;
   }
 
   // 2. Validation de la durée
   const durationHours = parseFloat((durationStr ?? "").replace(",", "."));
   if (isNaN(durationHours) || durationHours <= 0 || durationHours > 72) {
-    return interaction.editReply(
+    await interaction.editReply(
       "❌ **Durée invalide !** Indiquez un nombre d'heures (ex: `2` ou `3.5`).",
     );
+    return;
   }
 
   const endDate = new Date(
@@ -412,7 +459,7 @@ async function handleSortieModalSubmit(interaction) {
   }
 }
 
-module.exports = {
+export {
   handleNewSortieThread,
   handleSortieButton,
   handleSortieModalSubmit,

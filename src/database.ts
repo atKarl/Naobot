@@ -1,52 +1,149 @@
-const Database = require("better-sqlite3");
-const path = require("node:path");
+import Database from "better-sqlite3";
+import path from "node:path";
+import type {
+  ActivityLogType,
+  BatchMessageEntry,
+  BirthdayEntry,
+  InactiveUserListRow,
+  InactiveUserRow,
+  RecentWinnerEntry,
+  RemoveUserResult,
+  TodayBirthdayEntry,
+  TopUserWeightedRow,
+  UserActivityDetails,
+  UserStats,
+  UserWeightedScore,
+  WinnerCandidate,
+  WinnerHistoryEntry,
+} from "./types.ts";
 
-const db = new Database(path.join(__dirname, "../data.db"), { verbose: null });
+interface TrackingStatusRow {
+  tracking_enabled: number;
+}
+
+interface CountRow {
+  count: number;
+}
+
+interface UserInfoRow {
+  last_active_timestamp: number | null;
+  tracking_enabled: number;
+}
+
+interface ScoreRow {
+  score: number | null;
+}
+
+interface UserIdRow {
+  user_id: string;
+}
+
+interface LastByTypeRow {
+  type: string;
+  last_ts: number;
+}
+
+interface TimestampRow {
+  timestamp: number;
+}
+
+interface DbStatements {
+  getTrackingStatus: Database.Statement<[string], TrackingStatusRow>;
+  upsertUserActivity: Database.Statement<[string, string, number]>;
+  insertLog: Database.Statement<[string, ActivityLogType, number]>;
+  upsertUserBatch: Database.Statement<[string, string, number]>;
+  setTrackingStatus: Database.Statement<[string, number, number, number]>;
+  getUserLogCount: Database.Statement<[string], CountRow>;
+  getUserInfo: Database.Statement<[string], UserInfoRow>;
+  getUserWeightedScore: Database.Statement<[string], ScoreRow>;
+  getInactiveUsersList: Database.Statement<[number], InactiveUserListRow>;
+  getInactiveUsers: Database.Statement<[number], InactiveUserRow>;
+  pruneLogs: Database.Statement<[number]>;
+  deleteUserLogs: Database.Statement<[string]>;
+  deleteUser: Database.Statement<[string]>;
+  deleteBirthday: Database.Statement<[string]>;
+  getAllTrackedUserIds: Database.Statement<[], UserIdRow>;
+  setBirthday: Database.Statement<[string, string, number, number]>;
+  getAllBirthdays: Database.Statement<[], BirthdayEntry>;
+  getTodayBirthdays: Database.Statement<[number, number], TodayBirthdayEntry>;
+  saveMonthWinner: Database.Statement<
+    [string, string, number, number, number, number]
+  >;
+  getRecentWinners: Database.Statement<[number], RecentWinnerEntry>;
+  getAllWinnersHistory: Database.Statement<[], WinnerHistoryEntry>;
+  getTopUsersWithWeights: Database.Statement<
+    [number, number, number],
+    TopUserWeightedRow
+  >;
+  getUserLastByType: Database.Statement<[string], LastByTypeRow>;
+  getUserRecentReactions: Database.Statement<[string, number], TimestampRow>;
+}
+
+interface DbState {
+  stmts: DbStatements;
+  logTransaction: Database.Transaction<
+    (userId: string, username: string, type: ActivityLogType, now: number) => void
+  >;
+  updateBatchTransaction: Database.Transaction<
+    (messages: BatchMessageEntry[]) => void
+  >;
+  removeUserTransaction: Database.Transaction<
+    (userId: string) => RemoveUserResult
+  >;
+}
+
+const db = new Database(path.join(import.meta.dirname, "../data.db"));
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 db.pragma("busy_timeout = 5000");
 
-const cooldownCache = new Map();
+const cooldownCache = new Map<string, number>();
 
-let stmts = {};
-let logTransaction = null;
-let updateBatchTransaction = null;
-let removeUserTransaction = null;
+let state: DbState | null = null;
 
-function prepareStatements() {
-  stmts = {
-    getTrackingStatus: db.prepare(
+function getState(): DbState {
+  if (!state) {
+    throw new Error(
+      "Base de données non initialisée. Appelez initDb() d'abord.",
+    );
+  }
+  return state;
+}
+
+function prepareStatements(): void {
+  const stmts: DbStatements = {
+    getTrackingStatus: db.prepare<[string], TrackingStatusRow>(
       "SELECT tracking_enabled FROM users WHERE user_id = ?",
     ),
-    upsertUserActivity: db.prepare(`
+    upsertUserActivity: db.prepare<[string, string, number]>(`
       INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
       VALUES (?, ?, ?, 1)
       ON CONFLICT(user_id) DO UPDATE SET
         last_active_timestamp = excluded.last_active_timestamp,
         username = excluded.username
     `),
-    insertLog: db.prepare(
+    insertLog: db.prepare<[string, ActivityLogType, number]>(
       "INSERT INTO logs (user_id, type, timestamp) VALUES (?, ?, ?)",
     ),
-    upsertUserBatch: db.prepare(`
+    upsertUserBatch: db.prepare<[string, string, number]>(`
       INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
       VALUES (?, ?, ?, 1)
       ON CONFLICT(user_id) DO UPDATE SET
         last_active_timestamp = MAX(last_active_timestamp, excluded.last_active_timestamp),
         username = excluded.username
     `),
-    setTrackingStatus: db.prepare(`
+    setTrackingStatus: db.prepare<[string, number, number, number]>(`
       INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
       VALUES (?, 'Inconnu', ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET tracking_enabled = ?
     `),
-    getUserLogCount: db.prepare(
+    getUserLogCount: db.prepare<[string], CountRow>(
       "SELECT COUNT(*) as count FROM logs WHERE user_id = ?",
     ),
-    getUserInfo: db.prepare(
+    getUserInfo: db.prepare<[string], UserInfoRow>(
       "SELECT last_active_timestamp, tracking_enabled FROM users WHERE user_id = ?",
     ),
-    getUserWeightedScore: db.prepare(`
+    getUserWeightedScore: db.prepare<[string], ScoreRow>(`
       SELECT 
         SUM(CASE 
           WHEN l.type = 'message' THEN 2
@@ -57,20 +154,22 @@ function prepareStatements() {
       FROM logs l
       WHERE l.user_id = ?
     `),
-    getInactiveUsersList: db.prepare(
+    getInactiveUsersList: db.prepare<[number], InactiveUserListRow>(
       "SELECT user_id, username, last_active_timestamp FROM users WHERE tracking_enabled = 1 AND last_active_timestamp < ? ORDER BY last_active_timestamp ASC",
     ),
-    getInactiveUsers: db.prepare(
+    getInactiveUsers: db.prepare<[number], InactiveUserRow>(
       "SELECT user_id, last_active_timestamp FROM users WHERE tracking_enabled = 1 AND last_active_timestamp < ?",
     ),
-    pruneLogs: db.prepare("DELETE FROM logs WHERE timestamp < ?"),
-    deleteUserLogs: db.prepare("DELETE FROM logs WHERE user_id = ?"),
-    deleteUser: db.prepare("DELETE FROM users WHERE user_id = ?"),
-    deleteBirthday: db.prepare("DELETE FROM birthdays WHERE user_id = ?"),
-    getAllTrackedUserIds: db.prepare(
+    pruneLogs: db.prepare<[number]>("DELETE FROM logs WHERE timestamp < ?"),
+    deleteUserLogs: db.prepare<[string]>("DELETE FROM logs WHERE user_id = ?"),
+    deleteUser: db.prepare<[string]>("DELETE FROM users WHERE user_id = ?"),
+    deleteBirthday: db.prepare<[string]>(
+      "DELETE FROM birthdays WHERE user_id = ?",
+    ),
+    getAllTrackedUserIds: db.prepare<[], UserIdRow>(
       "SELECT user_id FROM users UNION SELECT user_id FROM birthdays",
     ),
-    setBirthday: db.prepare(`
+    setBirthday: db.prepare<[string, string, number, number]>(`
       INSERT INTO birthdays (user_id, username, day, month)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
@@ -78,32 +177,37 @@ function prepareStatements() {
         day      = excluded.day,
         month    = excluded.month
     `),
-    getAllBirthdays: db.prepare(`
+    getAllBirthdays: db.prepare<[], BirthdayEntry>(`
       SELECT user_id, username, day, month
       FROM birthdays
       ORDER BY month ASC, day ASC
     `),
-    getTodayBirthdays: db.prepare(`
+    getTodayBirthdays: db.prepare<[number, number], TodayBirthdayEntry>(`
       SELECT user_id, username
       FROM birthdays
       WHERE day = ? AND month = ?
     `),
-    saveMonthWinner: db.prepare(`
+    saveMonthWinner: db.prepare<
+      [string, string, number, number, number, number]
+    >(`
       INSERT INTO member_of_month_history (user_id, username, month, year, score, timestamp)
       VALUES (?, ?, ?, ?, ?, ?)
     `),
-    getRecentWinners: db.prepare(`
+    getRecentWinners: db.prepare<[number], RecentWinnerEntry>(`
       SELECT user_id, month, year, score
       FROM member_of_month_history
       ORDER BY year DESC, month DESC
       LIMIT ?
     `),
-    getAllWinnersHistory: db.prepare(`
+    getAllWinnersHistory: db.prepare<[], WinnerHistoryEntry>(`
       SELECT user_id, username, month, year, score, timestamp
       FROM member_of_month_history
       ORDER BY year DESC, month DESC
     `),
-    getTopUsersWithWeights: db.prepare(`
+    getTopUsersWithWeights: db.prepare<
+      [number, number, number],
+      TopUserWeightedRow
+    >(`
       SELECT 
         u.user_id,
         u.username,
@@ -120,13 +224,13 @@ function prepareStatements() {
       ORDER BY score DESC
       LIMIT ?
     `),
-    getUserLastByType: db.prepare(`
+    getUserLastByType: db.prepare<[string], LastByTypeRow>(`
       SELECT type, MAX(timestamp) as last_ts
       FROM logs
       WHERE user_id = ?
       GROUP BY type
     `),
-    getUserRecentReactions: db.prepare(`
+    getUserRecentReactions: db.prepare<[string, number], TimestampRow>(`
       SELECT timestamp
       FROM logs
       WHERE user_id = ? AND type = 'reaction'
@@ -135,27 +239,40 @@ function prepareStatements() {
     `),
   };
 
-  logTransaction = db.transaction((userId, username, type, now) => {
-    stmts.upsertUserActivity.run(userId, username, now);
-    stmts.insertLog.run(userId, type, now);
-  });
+  const logTransaction = db.transaction(
+    (userId: string, username: string, type: ActivityLogType, now: number) => {
+      stmts.upsertUserActivity.run(userId, username, now);
+      stmts.insertLog.run(userId, type, now);
+    },
+  );
 
-  updateBatchTransaction = db.transaction((messages) => {
-    for (const msg of messages) {
-      stmts.upsertUserBatch.run(msg.userId, msg.username, msg.ts);
-    }
-  });
+  const updateBatchTransaction = db.transaction(
+    (messages: BatchMessageEntry[]) => {
+      for (const msg of messages) {
+        stmts.upsertUserBatch.run(msg.userId, msg.username, msg.ts);
+      }
+    },
+  );
 
   // logs doit impérativement être supprimé avant users pour respecter FOREIGN KEY(user_id)
-  removeUserTransaction = db.transaction((userId) => {
-    const logsResult = stmts.deleteUserLogs.run(userId);
-    const userResult = stmts.deleteUser.run(userId);
-    stmts.deleteBirthday.run(userId);
-    return { logs: logsResult.changes, user: userResult.changes };
-  });
+  const removeUserTransaction = db.transaction(
+    (userId: string): RemoveUserResult => {
+      const logsResult = stmts.deleteUserLogs.run(userId);
+      const userResult = stmts.deleteUser.run(userId);
+      stmts.deleteBirthday.run(userId);
+      return { logs: logsResult.changes, user: userResult.changes };
+    },
+  );
+
+  state = {
+    stmts,
+    logTransaction,
+    updateBatchTransaction,
+    removeUserTransaction,
+  };
 }
 
-function initDb() {
+function initDb(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       user_id TEXT PRIMARY KEY,
@@ -199,7 +316,7 @@ function initDb() {
 
   try {
     db.prepare("SELECT tracking_enabled FROM users LIMIT 1").get();
-  } catch (error) {
+  } catch {
     try {
       db.exec(
         "ALTER TABLE users ADD COLUMN tracking_enabled INTEGER DEFAULT 1",
@@ -223,7 +340,13 @@ setInterval(() => {
   }
 }, 3600000).unref();
 
-function logActivity(userId, username, type, cooldownMs = 60000) {
+function logActivity(
+  userId: string,
+  username: string,
+  type: ActivityLogType,
+  cooldownMs = 60000,
+): void {
+  const { stmts, logTransaction } = getState();
   const now = Date.now();
 
   const lastActivity = cooldownCache.get(userId);
@@ -240,16 +363,17 @@ function logActivity(userId, username, type, cooldownMs = 60000) {
   }
 }
 
-function updateBatch(messages) {
-  return updateBatchTransaction(messages);
+function updateBatch(messages: BatchMessageEntry[]): void {
+  getState().updateBatchTransaction(messages);
 }
 
-function setTrackingStatus(userId, enabled) {
+function setTrackingStatus(userId: string, enabled: boolean): void {
   const status = enabled ? 1 : 0;
-  stmts.setTrackingStatus.run(userId, Date.now(), status, status);
+  getState().stmts.setTrackingStatus.run(userId, Date.now(), status, status);
 }
 
-function getUserStats(userId) {
+function getUserStats(userId: string): UserStats {
+  const { stmts } = getState();
   const count = stmts.getUserLogCount.get(userId);
   const user = stmts.getUserInfo.get(userId);
   return {
@@ -263,7 +387,8 @@ function getUserStats(userId) {
  * Calcule le score pondéré d'un utilisateur spécifique
  * (message=2, file=1, reaction=1)
  */
-function getUserWeightedScore(userId) {
+function getUserWeightedScore(userId: string): UserWeightedScore {
+  const { stmts } = getState();
   const scoreResult = stmts.getUserWeightedScore.get(userId);
   const user = stmts.getUserInfo.get(userId);
 
@@ -274,27 +399,27 @@ function getUserWeightedScore(userId) {
   };
 }
 
-function getInactiveUsersList(days) {
+function getInactiveUsersList(days: number): InactiveUserListRow[] {
   const thresholdDate = Date.now() - days * 24 * 60 * 60 * 1000;
-  return stmts.getInactiveUsersList.all(thresholdDate);
+  return getState().stmts.getInactiveUsersList.all(thresholdDate);
 }
 
-function getInactiveUsers(daysThreshold) {
+function getInactiveUsers(daysThreshold: number): InactiveUserRow[] {
   const thresholdDate = Date.now() - daysThreshold * 24 * 60 * 60 * 1000;
-  return stmts.getInactiveUsers.all(thresholdDate);
+  return getState().stmts.getInactiveUsers.all(thresholdDate);
 }
 
-function pruneLogs(daysRetention) {
+function pruneLogs(daysRetention: number): number {
   const limitTimestamp = Date.now() - daysRetention * 24 * 60 * 60 * 1000;
-  return stmts.pruneLogs.run(limitTimestamp).changes;
+  return getState().stmts.pruneLogs.run(limitTimestamp).changes;
 }
 
 /**
  * Supprime toutes les données d'un utilisateur (RGPD + départ serveur).
  */
-function removeUserData(userId) {
+function removeUserData(userId: string): RemoveUserResult | null {
   try {
-    const result = removeUserTransaction(userId);
+    const result = getState().removeUserTransaction(userId);
     console.log(
       `[GDPR] Suppression user ${userId} : ${result.user} user, ${result.logs} logs.`,
     );
@@ -310,12 +435,12 @@ function removeUserData(userId) {
   }
 }
 
-function createBackup(destinationPath) {
+function createBackup(destinationPath: string): Promise<Database.BackupMetadata> {
   return db.backup(destinationPath);
 }
 
-function getAllTrackedUserIds() {
-  const rows = stmts.getAllTrackedUserIds.all();
+function getAllTrackedUserIds(): string[] {
+  const rows = getState().stmts.getAllTrackedUserIds.all();
   return rows.map((row) => row.user_id);
 }
 
@@ -324,44 +449,35 @@ function getAllTrackedUserIds() {
 /**
  * Enregistre ou met à jour l'anniversaire d'un utilisateur.
  * L'année n'est jamais stockée.
- *
- * @param {string} userId
- * @param {string} username
- * @param {number} day    - 1-31
- * @param {number} month  - 1-12
  */
-function setBirthday(userId, username, day, month) {
-  stmts.setBirthday.run(userId, username, day, month);
+function setBirthday(
+  userId: string,
+  username: string,
+  day: number,
+  month: number,
+): void {
+  getState().stmts.setBirthday.run(userId, username, day, month);
 }
 
 /**
  * Supprime l'anniversaire d'un utilisateur.
- *
- * @param {string} userId
- * @returns {number} Nombre de lignes supprimées (0 ou 1)
  */
-function deleteBirthday(userId) {
-  return stmts.deleteBirthday.run(userId).changes;
+function deleteBirthday(userId: string): number {
+  return getState().stmts.deleteBirthday.run(userId).changes;
 }
 
 /**
  * Retourne tous les anniversaires triés chronologiquement.
- *
- * @returns {Array<{ user_id, username, day, month }>}
  */
-function getAllBirthdays() {
-  return stmts.getAllBirthdays.all();
+function getAllBirthdays(): BirthdayEntry[] {
+  return getState().stmts.getAllBirthdays.all();
 }
 
 /**
  * Retourne les anniversaires du jour (pour le cron d'annonces).
- *
- * @param {number} day
- * @param {number} month
- * @returns {Array<{ user_id, username }>}
  */
-function getTodayBirthdays(day, month) {
-  return stmts.getTodayBirthdays.all(day, month);
+function getTodayBirthdays(day: number, month: number): TodayBirthdayEntry[] {
+  return getState().stmts.getTodayBirthdays.all(day, month);
 }
 
 // ========== MEMBRE DU MOIS ==========
@@ -369,9 +485,15 @@ function getTodayBirthdays(day, month) {
 /**
  * Sauvegarde un gagnant dans l'historique
  */
-function saveMonthWinner(userId, username, month, year, score) {
+function saveMonthWinner(
+  userId: string,
+  username: string,
+  month: number,
+  year: number,
+  score: number,
+): Database.RunResult {
   const timestamp = Date.now();
-  return stmts.saveMonthWinner.run(
+  return getState().stmts.saveMonthWinner.run(
     userId,
     username,
     month,
@@ -384,29 +506,38 @@ function saveMonthWinner(userId, username, month, year, score) {
 /**
  * Récupère les N derniers gagnants (pour calcul du malus)
  */
-function getRecentWinners(months) {
-  return stmts.getRecentWinners.all(months);
+function getRecentWinners(months: number): RecentWinnerEntry[] {
+  return getState().stmts.getRecentWinners.all(months);
 }
 
 /**
  * Récupère tout l'historique (pour la commande)
  */
-function getAllWinnersHistory() {
-  return stmts.getAllWinnersHistory.all();
+function getAllWinnersHistory(): WinnerHistoryEntry[] {
+  return getState().stmts.getAllWinnersHistory.all();
 }
 
 /**
  * Calcule le top N avec pondération (message=2, file=1, reaction=1)
  */
-function getTopUsersWithWeights(startTs, endTs, limit = 10) {
-  return stmts.getTopUsersWithWeights.all(startTs, endTs, limit);
+function getTopUsersWithWeights(
+  startTs: number,
+  endTs: number,
+  limit = 10,
+): TopUserWeightedRow[] {
+  return getState().stmts.getTopUsersWithWeights.all(startTs, endTs, limit);
 }
 
 /**
  * Calcule le gagnant avec malus dégressif
  * Malus : -40% (M+1), -20% (M+2), -10% (M+3)
  */
-function calculateWinnerWithPenalty(startTs, endTs, currentMonth, currentYear) {
+function calculateWinnerWithPenalty(
+  startTs: number,
+  endTs: number,
+  currentMonth: number,
+  currentYear: number,
+): WinnerCandidate[] {
   // 1. Récupérer le top 10 avec pondération
   const topUsers = getTopUsersWithWeights(startTs, endTs, 10);
 
@@ -416,7 +547,7 @@ function calculateWinnerWithPenalty(startTs, endTs, currentMonth, currentYear) {
   const recentWinners = getRecentWinners(3);
 
   // 3. Créer une map des malus par user_id
-  const penaltyMap = new Map();
+  const penaltyMap = new Map<string, number>();
   recentWinners.forEach((winner) => {
     // Calculer combien de mois se sont écoulés
     const monthsAgo =
@@ -435,7 +566,7 @@ function calculateWinnerWithPenalty(startTs, endTs, currentMonth, currentYear) {
   });
 
   // 4. Appliquer les malus et calculer les scores ajustés
-  const results = topUsers.map((user) => {
+  const results: WinnerCandidate[] = topUsers.map((user) => {
     const penalty = penaltyMap.get(user.user_id) || 0;
     const adjustedScore = Math.floor(user.score * (1 - penalty));
 
@@ -454,23 +585,31 @@ function calculateWinnerWithPenalty(startTs, endTs, currentMonth, currentYear) {
   return results;
 }
 
-function resetUserInactivity(userId, username) {
+function resetUserInactivity(userId: string, username: string): void {
   const now = Date.now();
-  stmts.upsertUserActivity.run(userId, username || "Inconnu", now);
+  getState().stmts.upsertUserActivity.run(userId, username || "Inconnu", now);
 }
 
-function getUserActivityDetails(userId, reactionLimit = 5) {
+function getUserActivityDetails(
+  userId: string,
+  reactionLimit = 5,
+): UserActivityDetails {
+  const { stmts } = getState();
   const user = stmts.getUserInfo.get(userId);
   const byTypeRows = stmts.getUserLastByType.all(userId);
 
-  const lastByType = {
+  const lastByType: Record<ActivityLogType, number | null> = {
     message: null,
     file: null,
     reaction: null,
   };
 
   for (const row of byTypeRows) {
-    if (row.type in lastByType) {
+    if (
+      row.type === "message" ||
+      row.type === "file" ||
+      row.type === "reaction"
+    ) {
       lastByType[row.type] = row.last_ts;
     }
   }
@@ -487,14 +626,14 @@ function getUserActivityDetails(userId, reactionLimit = 5) {
   };
 }
 
-function closeDb() {
+function closeDb(): void {
   if (db.open) {
     db.close();
     console.log("Base de données fermée proprement.");
   }
 }
 
-module.exports = {
+export {
   initDb,
   logActivity,
   resetUserInactivity,

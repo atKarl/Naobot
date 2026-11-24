@@ -1,8 +1,9 @@
-const db = require("../database");
-const config = require("../../config.json");
-const { MessageFlags, escapeMarkdown } = require("discord.js");
+import { MessageFlags, escapeMarkdown } from "discord.js";
+import type { Guild, MessageMentionTypes } from "discord.js";
+import { config } from "../config.ts";
+import { getAllBirthdays } from "../database.ts";
 
-const MONTH_NAMES_CAP = [
+const MONTH_NAMES_CAP: readonly string[] = [
   "",
   "Janvier",
   "Février",
@@ -18,14 +19,14 @@ const MONTH_NAMES_CAP = [
   "Décembre",
 ];
 
-function isValidDate(day, month) {
+function isValidDate(day: number, month: number): boolean {
   if (month < 1 || month > 12) return false;
   const d = new Date(2000, month - 1, day);
   return d.getMonth() === month - 1 && d.getDate() === day;
 }
 
-async function buildBirthdayChunks(guild) {
-  const all = db.getAllBirthdays();
+async function buildBirthdayChunks(guild: Guild): Promise<string[]> {
+  const all = getAllBirthdays();
   if (all.length === 0) return [];
 
   // Récupère uniquement les membres manquants dans le cache (évite le rate-limit Gateway Opcode 8)
@@ -37,10 +38,11 @@ async function buildBirthdayChunks(guild) {
       await guild.members.fetch({ user: missingIds });
     }
   } catch (err) {
-    console.warn("[ANNIVERSAIRES] Erreur fetch membres ciblés :", err.message);
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn("[ANNIVERSAIRES] Erreur fetch membres ciblés :", message);
   }
 
-  const lines = [];
+  const lines: string[] = [];
   let currentMonth = 0;
 
   for (const entry of all) {
@@ -62,7 +64,7 @@ async function buildBirthdayChunks(guild) {
   }
 
   const CHUNK_SIZE = 1900;
-  const chunks = [];
+  const chunks: string[] = [];
   let current = "## 🎂 Liste des Anniversaires\n";
   let page = 1;
 
@@ -80,22 +82,28 @@ async function buildBirthdayChunks(guild) {
   return chunks;
 }
 
-async function refreshBirthdayMessage(guild) {
-  const channelId = config.channels?.birthdays;
+async function refreshBirthdayMessage(guild: Guild): Promise<void> {
+  const channelId = config.channels.birthdays;
   if (!channelId || channelId === "ID_DU_SALON") return;
 
   let channel;
   try {
     channel = await guild.client.channels.fetch(channelId);
   } catch (err) {
-    console.error("[ANNIVERSAIRES] Erreur fetch salon:", err.message);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[ANNIVERSAIRES] Erreur fetch salon:", message);
     return;
   }
 
+  if (!channel || !channel.isSendable()) return;
+
+  const botUserId = guild.client.user?.id;
+  if (!botUserId) return;
+
   const chunks = await buildBirthdayChunks(guild);
   const messageOptions = {
-    allowedMentions: { parse: [] },
-    flags: [MessageFlags.SuppressEmbeds],
+    allowedMentions: { parse: [] as MessageMentionTypes[] },
+    flags: MessageFlags.SuppressEmbeds as const,
   };
   const messages = await channel.messages.fetch({ limit: 10 });
 
@@ -103,21 +111,25 @@ async function refreshBirthdayMessage(guild) {
     messages
       .filter(
         (m) =>
-          m.author.id === guild.client.user.id &&
+          m.author.id === botUserId &&
           m.content.includes("Liste des Anniversaires"),
       )
       .values(),
   ).reverse();
 
   for (let i = 0; i < chunks.length; i++) {
-    if (botMessages[i])
-      await botMessages[i].edit({ content: chunks[i], ...messageOptions });
-    else await channel.send({ content: chunks[i], ...messageOptions });
+    const existing = botMessages[i];
+    if (existing) {
+      await existing.edit({ content: chunks[i], ...messageOptions });
+    } else {
+      await channel.send({ content: chunks[i], ...messageOptions });
+    }
   }
 
   for (let i = chunks.length; i < botMessages.length; i++) {
-    if (botMessages[i]) await botMessages[i].delete().catch(() => {});
+    const extra = botMessages[i];
+    if (extra) await extra.delete().catch(() => {});
   }
 }
 
-module.exports = { isValidDate, refreshBirthdayMessage, MONTH_NAMES_CAP };
+export { isValidDate, refreshBirthdayMessage, MONTH_NAMES_CAP };
