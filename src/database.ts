@@ -295,12 +295,11 @@ function initDb(): void {
     CREATE TABLE IF NOT EXISTS birthdays (
       user_id   TEXT PRIMARY KEY,
       username  TEXT,
-      day       INTEGER NOT NULL, -- Jour (1-31)
-      month     INTEGER NOT NULL  -- Mois (1-12)
+      day       INTEGER NOT NULL,
+      month     INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_birthdays_month_day ON birthdays(month, day);
 
-    -- Table historique des membres du mois
     CREATE TABLE IF NOT EXISTS member_of_month_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT NOT NULL,
@@ -357,7 +356,7 @@ function logActivity(
 
   try {
     logTransaction(userId, username, type, now);
-    cooldownCache.set(userId, now); // Enregistre simplement le timestamp
+    cooldownCache.set(userId, now);
   } catch (err) {
     console.error("Erreur écriture DB:", err);
   }
@@ -414,9 +413,6 @@ function pruneLogs(daysRetention: number): number {
   return getState().stmts.pruneLogs.run(limitTimestamp).changes;
 }
 
-/**
- * Supprime toutes les données d'un utilisateur (RGPD + départ serveur).
- */
 function removeUserData(userId: string): RemoveUserResult | null {
   try {
     const result = getState().removeUserTransaction(userId);
@@ -444,12 +440,8 @@ function getAllTrackedUserIds(): string[] {
   return rows.map((row) => row.user_id);
 }
 
-// ========== ANNIVERSAIRES ==========
+// --- ANNIVERSAIRES ---
 
-/**
- * Enregistre ou met à jour l'anniversaire d'un utilisateur.
- * L'année n'est jamais stockée.
- */
 function setBirthday(
   userId: string,
   username: string,
@@ -459,32 +451,20 @@ function setBirthday(
   getState().stmts.setBirthday.run(userId, username, day, month);
 }
 
-/**
- * Supprime l'anniversaire d'un utilisateur.
- */
 function deleteBirthday(userId: string): number {
   return getState().stmts.deleteBirthday.run(userId).changes;
 }
 
-/**
- * Retourne tous les anniversaires triés chronologiquement.
- */
 function getAllBirthdays(): BirthdayEntry[] {
   return getState().stmts.getAllBirthdays.all();
 }
 
-/**
- * Retourne les anniversaires du jour (pour le cron d'annonces).
- */
 function getTodayBirthdays(day: number, month: number): TodayBirthdayEntry[] {
   return getState().stmts.getTodayBirthdays.all(day, month);
 }
 
-// ========== MEMBRE DU MOIS ==========
+// --- MEMBRE DU MOIS ---
 
-/**
- * Sauvegarde un gagnant dans l'historique
- */
 function saveMonthWinner(
   userId: string,
   username: string,
@@ -503,16 +483,10 @@ function saveMonthWinner(
   );
 }
 
-/**
- * Récupère les N derniers gagnants (pour calcul du malus)
- */
 function getRecentWinners(months: number): RecentWinnerEntry[] {
   return getState().stmts.getRecentWinners.all(months);
 }
 
-/**
- * Récupère tout l'historique (pour la commande)
- */
 function getAllWinnersHistory(): WinnerHistoryEntry[] {
   return getState().stmts.getAllWinnersHistory.all();
 }
@@ -538,34 +512,27 @@ function calculateWinnerWithPenalty(
   currentMonth: number,
   currentYear: number,
 ): WinnerCandidate[] {
-  // 1. Récupérer le top 10 avec pondération
   const topUsers = getTopUsersWithWeights(startTs, endTs, 10);
 
   if (topUsers.length === 0) return [];
 
-  // 2. Récupérer les 3 derniers gagnants
   const recentWinners = getRecentWinners(3);
 
-  // 3. Créer une map des malus par user_id
   const penaltyMap = new Map<string, number>();
   recentWinners.forEach((winner) => {
-    // Calculer combien de mois se sont écoulés
     const monthsAgo =
       (currentYear - winner.year) * 12 + (currentMonth - winner.month);
 
     let penalty = 0;
-    if (monthsAgo === 1)
-      penalty = 0.4; // -40%
-    else if (monthsAgo === 2)
-      penalty = 0.2; // -20%
-    else if (monthsAgo === 3) penalty = 0.1; // -10%
+    if (monthsAgo === 1) penalty = 0.4;
+    else if (monthsAgo === 2) penalty = 0.2;
+    else if (monthsAgo === 3) penalty = 0.1;
 
     if (penalty > 0 && !penaltyMap.has(winner.user_id)) {
       penaltyMap.set(winner.user_id, penalty);
     }
   });
 
-  // 4. Appliquer les malus et calculer les scores ajustés
   const results: WinnerCandidate[] = topUsers.map((user) => {
     const penalty = penaltyMap.get(user.user_id) || 0;
     const adjustedScore = Math.floor(user.score * (1 - penalty));
@@ -579,7 +546,6 @@ function calculateWinnerWithPenalty(
     };
   });
 
-  // 5. Trier par score ajusté
   results.sort((a, b) => b.adjustedScore - a.adjustedScore);
 
   return results;

@@ -68,7 +68,6 @@ export async function execute(
     inactiveRoleId && member?.roles.cache.has(inactiveRoleId),
   );
 
-  // Calcul du statut d'inactivité
   let inactivityStatus: string;
   if (!member) {
     inactivityStatus = "⚪ Membre absent du serveur";

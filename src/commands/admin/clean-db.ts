@@ -21,7 +21,6 @@ export async function execute(
 ): Promise<unknown> {
   if (!interaction.guild) return;
 
-  // Sécurité : Admin seulement
   if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
     return interaction.reply({
       content: "⛔ Réservé au staff.",
@@ -31,7 +30,6 @@ export async function execute(
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  // 1. Récupération des données
   let discordMembers: Collection<string, GuildMember>;
   try {
     discordMembers = await interaction.guild.members.fetch();
@@ -43,7 +41,6 @@ export async function execute(
 
   const dbUserIds = getAllTrackedUserIds();
 
-  // 2. Identification des fantômes
   const ghosts = dbUserIds.filter((dbId) => !discordMembers.has(dbId));
 
   if (ghosts.length === 0) {
@@ -56,7 +53,6 @@ export async function execute(
     `🧹 **Nettoyage commencé...**\n👻 ${ghosts.length} utilisateurs fantômes détectés.\nSuppression en cours...`,
   );
 
-  // 3. Suppression massive
   let deletedCount = 0;
 
   for (const userId of ghosts) {

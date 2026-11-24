@@ -33,11 +33,9 @@ export async function execute(
   const action = interaction.options.getString("action", true);
   const userId = interaction.user.id;
 
-  // 1. On récupère l'état actuel en BDD
   const stats = getUserStats(userId);
-  const currentTracking = stats.tracking; // 1 pour actif, 0 pour inactif
+  const currentTracking = stats.tracking;
 
-  // 2. Vérification : Est-ce que l'utilisateur demande son état actuel ?
   if (action === "optin" && currentTracking === 1) {
     return interaction.reply({
       content: "ℹ️ Votre suivi d'activité est **déjà activé**.",
@@ -52,7 +50,6 @@ export async function execute(
     });
   }
 
-  // 3. Si l'état est différent, on procède au changement
   if (action === "optin") {
     setTrackingStatus(userId, true);
     await interaction.reply({

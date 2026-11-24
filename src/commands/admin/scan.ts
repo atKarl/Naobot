@@ -78,6 +78,7 @@ export async function execute(
             typeof err === "object" && err !== null && "code" in err
               ? err.code
               : undefined;
+          // 50027 = token d'interaction expiré (> 15 min) : repli sur channel.send
           if (code !== 50027) throw err;
           tokenExpired = true;
         }
@@ -92,7 +93,6 @@ export async function execute(
       `🔄 **Deep Scan initialisé** (${days} jours)...\nRécupération de la liste des salons...`,
     );
 
-    // Récupération de tous les types de salons textuels pertinents et des fils actifs
     const ignoredChannels = config.ignoredChannels;
     const allChannels = new Map<string, GuildTextBasedChannel>();
     try {
@@ -143,12 +143,10 @@ export async function execute(
     let totalMessages = 0;
     let channelsProcessed = 0;
 
-    // --- Boucle sur chaque salon ---
     for (const [, channel] of allChannels) {
       let lastMessageId: string | null = null;
       let keepScanning = true;
 
-      // Skip si le bot n'a pas les permissions requises sur le salon
       const perms = channel.permissionsFor(me);
       if (
         !perms?.has([
@@ -160,7 +158,6 @@ export async function execute(
         continue;
       }
 
-      // Boucle de pagination des messages
       while (keepScanning) {
         try {
           const options: FetchMessagesOptions = { limit: 100 };

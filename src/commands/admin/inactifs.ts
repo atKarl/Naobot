@@ -81,7 +81,7 @@ export async function execute(
     );
     const member = currentMembers.get(u.user_id);
 
-    if (!member) return; // Sécurité si le membre vient de partir
+    if (!member) return;
 
     const globalUsername = member.user.username;
     const serverName = member.displayName;
@@ -97,7 +97,6 @@ export async function execute(
   fileContent += `\n----------------------------------------------------\n`;
   fileContent += `Fin du rapport.`;
 
-  // Création du fichier
   const buffer = Buffer.from(fileContent, "utf-8");
   const attachment = new AttachmentBuilder(buffer, {
     name: `inactifs_${days}jours.txt`,

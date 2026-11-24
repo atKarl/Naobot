@@ -82,7 +82,6 @@ export async function execute(
     });
   }
 
-  // On envoie l'embed dans le salon actuel
   try {
     await interaction.channel.send({ embeds: [faqEmbed] });
   } catch (err) {
@@ -93,7 +92,6 @@ export async function execute(
     });
   }
 
-  // On répond à l'admin de manière éphémère pour confirmer
   await interaction.reply({
     content: "✅ La FAQ a été postée avec succès dans ce salon !",
     flags: MessageFlags.Ephemeral,

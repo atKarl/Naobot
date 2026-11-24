@@ -41,7 +41,6 @@ export async function execute(
     .setColor(0x0099ff)
     .setThumbnail(targetUser.displayAvatarURL());
 
-  // Si l'utilisateur cible a désactivé le suivi (Opt-out)
   if (isOptOut && !isSelf) {
     embed
       .setTitle(`Statistiques de ${escapeMarkdown(targetUser.username)}`)
@@ -56,8 +55,6 @@ export async function execute(
     });
   }
 
-  // Utilisation des Timestamps dynamiques Discord
-  // <t:X:f> = Date complète, <t:X:R> = Temps relatif ("il y a X jours")
   let lastActiveField = "Jamais";
   if (stats.lastActive) {
     const ts = Math.floor(stats.lastActive / 1000);

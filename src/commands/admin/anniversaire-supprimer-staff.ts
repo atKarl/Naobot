@@ -37,7 +37,6 @@ export async function execute(
     });
   }
 
-  // Mise à jour automatique du message persistant sur le serveur
   await refreshBirthdayMessage(interaction.guild);
 
   return interaction.editReply({

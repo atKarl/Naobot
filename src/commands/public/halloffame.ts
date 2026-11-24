@@ -39,7 +39,6 @@ export async function execute(
     });
   }
 
-  // Limiter aux 12 derniers
   const recentHistory = history.slice(0, 12);
 
   const embed = new EmbedBuilder()

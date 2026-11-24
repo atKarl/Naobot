@@ -17,8 +17,7 @@ export async function execute(
 ): Promise<unknown> {
   if (!interaction.guild) return;
 
-  // Utiliser le système de pondération pour cohérence avec le membre du mois
-  // On récupère tous les logs depuis le début (timestamp 0 jusqu'à maintenant)
+  // Pondération identique à Membre du Mois, sur tout l'historique
   const topUsers = getTopUsersWithWeights(0, Date.now(), 10);
 
   const embed = new EmbedBuilder()

@@ -96,7 +96,6 @@ process.on("uncaughtException", (error) => {
   void shutdown("uncaughtException", 1);
 });
 
-// --- CHARGEMENT DES COMMANDES ---
 const commands = await loadCommands();
 
 // --- ÉVÉNEMENTS DISCORD ---
@@ -116,7 +115,6 @@ client.once(Events.ClientReady, async (c) => {
   console.log(`⏱️ Cooldown anti-spam : ${config.cooldown / 1000}s`);
   initCronJobs();
 
-  // Rafraîchissement de la liste des anniversaires au démarrage
   try {
     const guild = c.guilds.cache.get(config.guildId);
     if (guild) {
@@ -130,14 +128,12 @@ client.once(Events.ClientReady, async (c) => {
   }
 });
 
-// Gestion des interactions (Commandes Slash, Boutons, Modals)
 client.on(Events.InteractionCreate, async (interaction) => {
   const errPayload = {
     content: "Une erreur interne est survenue.",
     flags: MessageFlags.Ephemeral,
   } as const;
 
-  // 1. Boutons du module Sorties
   if (interaction.isButton() && interaction.customId.startsWith("sortie_")) {
     try {
       await handleSortieButton(interaction);
@@ -153,7 +149,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  // 2. Modals du module Sorties
   if (
     interaction.isModalSubmit() &&
     interaction.customId.startsWith("modal_sortie_")
@@ -172,7 +167,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  // 3. Commandes Slash
   if (!interaction.isChatInputCommand()) return;
   const command = commands.get(interaction.commandName);
   if (!command) return;
@@ -187,11 +181,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// Tracking des Messages
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.guild) return;
 
-  // Retrait immédiat du rôle Inactif si présent
   if (
     config.roles.inactive &&
     message.member?.roles.cache.has(config.roles.inactive)
@@ -218,7 +210,6 @@ client.on(Events.MessageCreate, async (message) => {
   );
 });
 
-// Tracking des Réactions
 client.on(Events.MessageReactionAdd, async (reaction, user) => {
   if (user.bot) return;
 
@@ -259,13 +250,11 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
   );
 });
 
-// Gestion des Départs : suppression données + anniversaire + mise à jour liste
 client.on(Events.GuildMemberRemove, async (member) => {
   if (member.user.bot) return;
 
   db.removeUserData(member.id);
 
-  // Mise à jour de la liste persistante des anniversaires
   try {
     await refreshBirthdayMessage(member.guild);
   } catch (err) {
@@ -284,7 +273,6 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
   const hadRole = oldMember.roles.cache.has(inactiveRoleId);
   const hasRole = newMember.roles.cache.has(inactiveRoleId);
 
-  // Détecte si le rôle vient d'être retiré
   if (hadRole && !hasRole) {
     db.resetUserInactivity(newMember.id, newMember.user.username);
     console.log(
@@ -297,7 +285,6 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
 client.on(Events.ThreadCreate, async (thread, newlyCreated) => {
   if (!newlyCreated) return;
 
-  // On vérifie que le thread est bien dans le salon forum des sorties
   if (
     config.channels.sortiesForum &&
     thread.parentId === config.channels.sortiesForum
@@ -411,11 +398,10 @@ function initCronJobs(): void {
       ).getTime();
       const endOfLastMonth = startOfCurrentMonth - 1;
 
-      // Calculer le top 10 avec malus
       const candidates = db.calculateWinnerWithPenalty(
         startOfLastMonth,
         endOfLastMonth,
-        lastMonth, // Mois 1-12
+        lastMonth,
         lastMonthYear,
       );
 
@@ -433,7 +419,6 @@ function initCronJobs(): void {
         );
       });
 
-      // Trouver le premier candidat encore sur le serveur
       let winner: WinnerCandidate | null = null;
       let winnerMember: GuildMember | null = null;
 
@@ -461,11 +446,11 @@ function initCronJobs(): void {
       }
 
       try {
+        // Peuple le cache membres pour que role.members contienne tous les détenteurs actuels
         await guild.members.fetch();
 
         const activeRoleId = config.roles.activeOfMonth;
         if (activeRoleId) {
-          // Retirer le rôle aux anciens gagnants
           const role = await guild.roles.fetch(activeRoleId);
           if (role) {
             for (const [, member] of role.members) {
@@ -473,11 +458,9 @@ function initCronJobs(): void {
             }
           }
 
-          // Attribuer le rôle au nouveau gagnant
           await winnerMember.roles.add(activeRoleId);
         }
 
-        // Sauvegarder dans l'historique
         db.saveMonthWinner(
           winner.user_id,
           winner.username,
@@ -486,7 +469,6 @@ function initCronJobs(): void {
           winner.adjustedScore,
         );
 
-        // Envoyer l'annonce
         const announcementChannelId = config.channels.announcement;
         const channel = announcementChannelId
           ? guild.channels.cache.get(announcementChannelId)
@@ -634,9 +616,7 @@ function initCronJobs(): void {
     CRON_OPTIONS,
   );
 
-  // ----------------------------------------------------------------
-  // Tâche 5 : Annonces d'Anniversaires — Tous les jours à 09h00
-  // ----------------------------------------------------------------
+  // Tâche 5 : Annonces d'Anniversaires (Tous les jours à 09h00)
   cron.schedule(
     "0 9 * * *",
     async () => {
@@ -650,7 +630,6 @@ function initCronJobs(): void {
 
         let todayBirthdays = db.getTodayBirthdays(day, month);
 
-        // --- FIX EDGE CASE 29 FÉVRIER ---
         const isLeapYear = (y: number): boolean =>
           (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
 
@@ -677,7 +656,6 @@ function initCronJobs(): void {
           return;
         }
 
-        // Construction des mentions @pseudo
         const mentions = todayBirthdays
           .map((u) => `<@${u.user_id}>`)
           .join(", ");

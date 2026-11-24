@@ -21,6 +21,7 @@ const MONTH_NAMES_CAP: readonly string[] = [
 
 function isValidDate(day: number, month: number): boolean {
   if (month < 1 || month > 12) return false;
+  // Année 2000 (bissextile) pour accepter le 29 février sans stocker l'année de naissance
   const d = new Date(2000, month - 1, day);
   return d.getMonth() === month - 1 && d.getDate() === day;
 }
@@ -55,7 +56,6 @@ async function buildBirthdayChunks(guild: Guild): Promise<string[]> {
     const member = guild.members.cache.get(entry.user_id);
     const displayName = member ? member.displayName : entry.username;
 
-    // Format : PseudoSurLeServeur - @Mention
     const nameDisplay = `**${escapeMarkdown(displayName)}** - <@${entry.user_id}>`;
 
     lines.push(
@@ -102,6 +102,7 @@ async function refreshBirthdayMessage(guild: Guild): Promise<void> {
 
   const chunks = await buildBirthdayChunks(guild);
   const messageOptions = {
+    // Évite de notifier tous les membres à chaque mise à jour de la liste
     allowedMentions: { parse: [] as MessageMentionTypes[] },
     flags: MessageFlags.SuppressEmbeds as const,
   };

@@ -30,9 +30,6 @@ interface ParsedTime {
   minutes: number;
 }
 
-/**
- * Envoie le message d'assistance dans le nouveau fil de discussion
- */
 async function handleNewSortieThread(thread: AnyThreadChannel): Promise<void> {
   try {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -75,9 +72,6 @@ async function resolveThread(
   return fetched?.isThread() ? fetched : null;
 }
 
-/**
- * Gère le clic sur les boutons d'une sortie
- */
 async function handleSortieButton(interaction: ButtonInteraction): Promise<void> {
   const [, action, threadId] = interaction.customId.split("_");
   if (!action || !threadId) return;
@@ -112,7 +106,6 @@ async function handleSortieButton(interaction: ButtonInteraction): Promise<void>
       .setCustomId(`modal_sortie_${threadId}`)
       .setTitle("Ajouter la sortie au calendrier");
 
-    // Champ 1 : Titre (max 100)
     const titleInput = new TextInputBuilder()
       .setCustomId("title")
       .setStyle(TextInputStyle.Short)
@@ -120,7 +113,6 @@ async function handleSortieButton(interaction: ButtonInteraction): Promise<void>
       .setMaxLength(100)
       .setRequired(true);
 
-    // Champ 2 : Date séparée (accepte 23/09, demain, vendredi...)
     const dateInput = new TextInputBuilder()
       .setCustomId("date")
       .setStyle(TextInputStyle.Short)
@@ -128,7 +120,6 @@ async function handleSortieButton(interaction: ButtonInteraction): Promise<void>
       .setMaxLength(20)
       .setRequired(true);
 
-    // Champ 3 : Heure séparée (ex: 19h30, 20h)
     const timeInput = new TextInputBuilder()
       .setCustomId("time")
       .setStyle(TextInputStyle.Short)
@@ -136,7 +127,6 @@ async function handleSortieButton(interaction: ButtonInteraction): Promise<void>
       .setMaxLength(10)
       .setRequired(true);
 
-    // Champ 4 : Durée (menu déroulant)
     const durationSelect = new StringSelectMenuBuilder()
       .setCustomId("duration")
       .setRequired(true)
@@ -156,7 +146,6 @@ async function handleSortieButton(interaction: ButtonInteraction): Promise<void>
           .setValue("8"),
       );
 
-    // Champ 5 : Lieu
     const locationInput = new TextInputBuilder()
       .setCustomId("location")
       .setStyle(TextInputStyle.Short)
@@ -232,7 +221,7 @@ function parseDateInput(dateStr: string): ParsedDate | null {
   if (targetDayIndex !== -1) {
     const currentDayIndex = todayParis.getDay();
     let diff = targetDayIndex - currentDayIndex;
-    if (diff <= 0) diff += 7; // Prochain jour de la semaine
+    if (diff <= 0) diff += 7;
     const targetDate = new Date(todayParis);
     targetDate.setDate(targetDate.getDate() + diff);
     return {
@@ -334,7 +323,7 @@ function getParisOffsetMs(utcMs: number): number {
 }
 
 /**
- * Calcule l'heure UTC exacte correspondant à l'heure locale de Paris (gère été/hiver et transitions DST)
+ * Calcule l'heure UTC exacte correspondant à l'heure locale de Paris (double passe pour les transitions DST été/hiver)
  */
 function createDateInParisTime(
   day: number,
@@ -350,9 +339,6 @@ function createDateInParisTime(
   return new Date(targetUtc - offset2);
 }
 
-/**
- * Traite la soumission du formulaire et crée l'événement Discord
- */
 async function handleSortieModalSubmit(
   interaction: ModalSubmitInteraction,
 ): Promise<void> {
@@ -374,7 +360,6 @@ async function handleSortieModalSubmit(
   const durationStr = interaction.fields.getStringSelectValues("duration")[0];
   const location = interaction.fields.getTextInputValue("location");
 
-  // 1. Validation de la date et de l'heure
   const dateInfo = parseDateInput(dateStr);
   if (!dateInfo) {
     await interaction.editReply(
@@ -399,7 +384,6 @@ async function handleSortieModalSubmit(
     timeInfo.minutes,
   );
 
-  // Sécurité anti-crash
   if (isNaN(startDate.getTime())) {
     await interaction.editReply(
       "❌ **Erreur d'analyse de la date.** Vérifiez votre saisie.",
@@ -414,7 +398,6 @@ async function handleSortieModalSubmit(
     return;
   }
 
-  // 2. Validation de la durée
   const durationHours = parseFloat((durationStr ?? "").replace(",", "."));
   if (isNaN(durationHours) || durationHours <= 0 || durationHours > 72) {
     await interaction.editReply(
@@ -427,7 +410,6 @@ async function handleSortieModalSubmit(
     startDate.getTime() + durationHours * 60 * 60 * 1000,
   );
 
-  // 3. Création de l'événement Discord
   try {
     const eventUrl = thread
       ? `https://discord.com/channels/${interaction.guild.id}/${thread.id}`
@@ -443,7 +425,6 @@ async function handleSortieModalSubmit(
       description: `🎉 Sortie proposée par <@${interaction.user.id}>\n\n🔗 **Lien du sujet pour s'organiser :**\n${eventUrl}`,
     });
 
-    // 4. Nettoyage du message d'invitation initial
     if (interaction.message) {
       await interaction.message.delete().catch(() => {});
     }
