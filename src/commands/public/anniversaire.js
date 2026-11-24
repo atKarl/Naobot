@@ -14,31 +14,30 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     const day = interaction.options.getInteger("jour");
     const month = interaction.options.getInteger("mois");
     const user = interaction.user;
 
     if (!isValidDate(day, month)) {
-      return interaction.reply({
+      return interaction.editReply({
         content: `❌ Date invalide (${day}/${month}).`,
-        flags: MessageFlags.Ephemeral,
       });
     }
 
     const stats = db.getUserStats(user.id);
     if (stats.tracking === 0) {
-      return interaction.reply({
+      return interaction.editReply({
         content: "🛑 Active ton suivi (`/privacy optin`) pour utiliser cette fonction.",
-        flags: MessageFlags.Ephemeral,
       });
     }
 
     db.setBirthday(user.id, user.username, day, month);
     await refreshBirthdayMessage(interaction.guild);
 
-    return interaction.reply({
+    return interaction.editReply({
       content: `✅ Anniversaire enregistré : **${day} ${MONTH_NAMES_CAP[month]}**.`,
-      flags: MessageFlags.Ephemeral,
     });
   },
 };

@@ -19,33 +19,42 @@ module.exports = {
       opt.setName("membre").setDescription("Le membre").setRequired(true),
     )
     .addIntegerOption((opt) =>
-      opt.setName("jour").setDescription("Jour (1-31)").setRequired(true),
+      opt
+        .setName("jour")
+        .setDescription("Jour (1-31)")
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(31),
     )
     .addIntegerOption((opt) =>
-      opt.setName("mois").setDescription("Mois (1-12)").setRequired(true),
+      opt
+        .setName("mois")
+        .setDescription("Mois (1-12)")
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(12),
     ),
 
   async execute(interaction) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     const targetUser = interaction.options.getUser("membre");
     const day = interaction.options.getInteger("jour");
     const month = interaction.options.getInteger("mois");
 
     if (targetUser.bot)
-      return interaction.reply({
+      return interaction.editReply({
         content: "❌ Pas pour les bots.",
-        flags: MessageFlags.Ephemeral,
       });
     if (!isValidDate(day, month))
-      return interaction.reply({
+      return interaction.editReply({
         content: "❌ Date invalide.",
-        flags: MessageFlags.Ephemeral,
       });
 
     const stats = db.getUserStats(targetUser.id);
     if (stats.tracking === 0)
-      return interaction.reply({
+      return interaction.editReply({
         content: "🛑 Ce membre a désactivé le suivi (Opt-out).",
-        flags: MessageFlags.Ephemeral,
       });
 
     let displayName = targetUser.username;
@@ -57,9 +66,8 @@ module.exports = {
     db.setBirthday(targetUser.id, displayName, day, month);
     await refreshBirthdayMessage(interaction.guild);
 
-    return interaction.reply({
+    return interaction.editReply({
       content: `✅ Anniversaire de **${displayName}** défini au **${day} ${MONTH_NAMES_CAP[month]}**.`,
-      flags: MessageFlags.Ephemeral,
     });
   },
 };

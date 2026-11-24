@@ -19,23 +19,23 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     const targetUser = interaction.options.getUser("membre");
 
     const deleted = db.deleteBirthday(targetUser.id);
 
     if (deleted === 0) {
-      return interaction.reply({
+      return interaction.editReply({
         content: `ℹ️ **${targetUser.username}** n'a aucun anniversaire enregistré dans la base de données.`,
-        flags: MessageFlags.Ephemeral,
       });
     }
 
     // Mise à jour automatique du message persistant sur le serveur
     await refreshBirthdayMessage(interaction.guild);
 
-    return interaction.reply({
+    return interaction.editReply({
       content: `🗑️ L'anniversaire de **${targetUser.username}** a été supprimé avec succès.`,
-      flags: MessageFlags.Ephemeral,
     });
   },
 };

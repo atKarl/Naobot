@@ -14,7 +14,9 @@ module.exports = {
       option
         .setName("jours")
         .setDescription("Nombre de jours sans activité")
-        .setRequired(true),
+        .setRequired(true)
+        .setMinValue(1)
+        .setMaxValue(3650),
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 

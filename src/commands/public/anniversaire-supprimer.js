@@ -8,20 +8,20 @@ module.exports = {
     .setDescription("Supprime ton anniversaire de la liste"),
 
   async execute(interaction) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     const deleted = db.deleteBirthday(interaction.user.id);
 
     if (deleted === 0) {
-      return interaction.reply({
+      return interaction.editReply({
         content: "ℹ️ Tu n'avais pas d'anniversaire enregistré.",
-        flags: MessageFlags.Ephemeral,
       });
     }
 
     await refreshBirthdayMessage(interaction.guild);
 
-    return interaction.reply({
+    return interaction.editReply({
       content: "🗑️ Ton anniversaire a été supprimé.",
-      flags: MessageFlags.Ephemeral,
     });
   },
 };
