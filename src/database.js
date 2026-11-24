@@ -3,8 +3,157 @@ const path = require("path");
 
 const db = new Database(path.join(__dirname, "../data.db"), { verbose: null });
 db.pragma("journal_mode = WAL");
+db.pragma("foreign_keys = ON");
+db.pragma("busy_timeout = 5000");
 
 const cooldownCache = new Map();
+
+let stmts = {};
+let logTransaction = null;
+let updateBatchTransaction = null;
+let removeUserTransaction = null;
+
+function prepareStatements() {
+  stmts = {
+    getTrackingStatus: db.prepare(
+      "SELECT tracking_enabled FROM users WHERE user_id = ?",
+    ),
+    upsertUserActivity: db.prepare(`
+      INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
+      VALUES (?, ?, ?, 1)
+      ON CONFLICT(user_id) DO UPDATE SET
+        last_active_timestamp = excluded.last_active_timestamp,
+        username = excluded.username
+    `),
+    insertLog: db.prepare(
+      "INSERT INTO logs (user_id, type, timestamp) VALUES (?, ?, ?)",
+    ),
+    upsertUserBatch: db.prepare(`
+      INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
+      VALUES (?, ?, ?, 1)
+      ON CONFLICT(user_id) DO UPDATE SET
+        last_active_timestamp = MAX(last_active_timestamp, excluded.last_active_timestamp),
+        username = excluded.username
+    `),
+    setTrackingStatus: db.prepare(`
+      INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
+      VALUES (?, 'Inconnu', ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET tracking_enabled = ?
+    `),
+    getUserLogCount: db.prepare(
+      "SELECT COUNT(*) as count FROM logs WHERE user_id = ?",
+    ),
+    getUserInfo: db.prepare(
+      "SELECT last_active_timestamp, tracking_enabled FROM users WHERE user_id = ?",
+    ),
+    getUserWeightedScore: db.prepare(`
+      SELECT 
+        SUM(CASE 
+          WHEN l.type = 'message' THEN 2
+          WHEN l.type = 'file' THEN 1
+          WHEN l.type = 'reaction' THEN 1
+          ELSE 1
+        END) as score
+      FROM logs l
+      WHERE l.user_id = ?
+    `),
+    getInactiveUsersList: db.prepare(
+      "SELECT user_id, username, last_active_timestamp FROM users WHERE tracking_enabled = 1 AND last_active_timestamp < ? ORDER BY last_active_timestamp ASC",
+    ),
+    getInactiveUsers: db.prepare(
+      "SELECT user_id, last_active_timestamp FROM users WHERE tracking_enabled = 1 AND last_active_timestamp < ?",
+    ),
+    pruneLogs: db.prepare("DELETE FROM logs WHERE timestamp < ?"),
+    deleteUserLogs: db.prepare("DELETE FROM logs WHERE user_id = ?"),
+    deleteUser: db.prepare("DELETE FROM users WHERE user_id = ?"),
+    deleteBirthday: db.prepare("DELETE FROM birthdays WHERE user_id = ?"),
+    getAllTrackedUserIds: db.prepare(
+      "SELECT user_id FROM users UNION SELECT user_id FROM birthdays",
+    ),
+    setBirthday: db.prepare(`
+      INSERT INTO birthdays (user_id, username, day, month)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        username = excluded.username,
+        day      = excluded.day,
+        month    = excluded.month
+    `),
+    getAllBirthdays: db.prepare(`
+      SELECT user_id, username, day, month
+      FROM birthdays
+      ORDER BY month ASC, day ASC
+    `),
+    getTodayBirthdays: db.prepare(`
+      SELECT user_id, username
+      FROM birthdays
+      WHERE day = ? AND month = ?
+    `),
+    saveMonthWinner: db.prepare(`
+      INSERT INTO member_of_month_history (user_id, username, month, year, score, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `),
+    getRecentWinners: db.prepare(`
+      SELECT user_id, month, year, score
+      FROM member_of_month_history
+      ORDER BY year DESC, month DESC
+      LIMIT ?
+    `),
+    getAllWinnersHistory: db.prepare(`
+      SELECT user_id, username, month, year, score, timestamp
+      FROM member_of_month_history
+      ORDER BY year DESC, month DESC
+    `),
+    getTopUsersWithWeights: db.prepare(`
+      SELECT 
+        u.user_id,
+        u.username,
+        SUM(CASE 
+          WHEN l.type = 'message' THEN 2
+          WHEN l.type = 'file' THEN 1
+          WHEN l.type = 'reaction' THEN 1
+          ELSE 1
+        END) as score
+      FROM logs l
+      JOIN users u ON l.user_id = u.user_id
+      WHERE l.timestamp >= ? AND l.timestamp <= ? AND u.tracking_enabled = 1
+      GROUP BY u.user_id
+      ORDER BY score DESC
+      LIMIT ?
+    `),
+    getUserLastByType: db.prepare(`
+      SELECT type, MAX(timestamp) as last_ts
+      FROM logs
+      WHERE user_id = ?
+      GROUP BY type
+    `),
+    getUserRecentReactions: db.prepare(`
+      SELECT timestamp
+      FROM logs
+      WHERE user_id = ? AND type = 'reaction'
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `),
+  };
+
+  logTransaction = db.transaction((userId, username, type, now) => {
+    stmts.upsertUserActivity.run(userId, username, now);
+    stmts.insertLog.run(userId, type, now);
+  });
+
+  updateBatchTransaction = db.transaction((messages) => {
+    for (const msg of messages) {
+      stmts.upsertUserBatch.run(msg.userId, msg.username, msg.ts);
+    }
+  });
+
+  // logs doit impérativement être supprimé avant users pour respecter FOREIGN KEY(user_id)
+  removeUserTransaction = db.transaction((userId) => {
+    const logsResult = stmts.deleteUserLogs.run(userId);
+    const userResult = stmts.deleteUser.run(userId);
+    stmts.deleteBirthday.run(userId);
+    return { logs: logsResult.changes, user: userResult.changes };
+  });
+}
 
 function initDb() {
   db.exec(`
@@ -23,6 +172,7 @@ function initDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_logs_user ON logs(user_id);
     CREATE INDEX IF NOT EXISTS idx_logs_time ON logs(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_logs_user_type_time ON logs(user_id, type, timestamp DESC);
 
     -- Table des anniversaires (jour/mois uniquement — l'année n'est jamais stockée)
     CREATE TABLE IF NOT EXISTS birthdays (
@@ -59,6 +209,7 @@ function initDb() {
     }
   }
 
+  prepareStatements();
   console.log("Base de données chargée.");
 }
 
@@ -78,68 +229,29 @@ function logActivity(userId, username, type, cooldownMs = 60000) {
   const lastActivity = cooldownCache.get(userId);
   if (lastActivity && now - lastActivity < cooldownMs) return;
 
-  const userCheck = db
-    .prepare("SELECT tracking_enabled FROM users WHERE user_id = ?")
-    .get(userId);
+  const userCheck = stmts.getTrackingStatus.get(userId);
   if (userCheck && userCheck.tracking_enabled === 0) return;
 
-  const logTransaction = db.transaction(() => {
-    db.prepare(
-      `
-      INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
-      VALUES (?, ?, ?, 1)
-      ON CONFLICT(user_id) DO UPDATE SET
-        last_active_timestamp = excluded.last_active_timestamp,
-        username = excluded.username
-    `,
-    ).run(userId, username, now);
-
-    db.prepare(
-      "INSERT INTO logs (user_id, type, timestamp) VALUES (?, ?, ?)",
-    ).run(userId, type, now);
-  });
-
   try {
-    logTransaction();
+    logTransaction(userId, username, type, now);
     cooldownCache.set(userId, now); // Enregistre simplement le timestamp
   } catch (err) {
     console.error("Erreur écriture DB:", err);
   }
 }
 
-const updateBatch = db.transaction((messages) => {
-  const stmt = db.prepare(`
-    INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
-    VALUES (?, ?, ?, 1)
-    ON CONFLICT(user_id) DO UPDATE SET
-      last_active_timestamp = MAX(last_active_timestamp, excluded.last_active_timestamp),
-      username = excluded.username
-  `);
-  for (const msg of messages) {
-    stmt.run(msg.userId, msg.username, msg.ts);
-  }
-});
+function updateBatch(messages) {
+  return updateBatchTransaction(messages);
+}
 
 function setTrackingStatus(userId, enabled) {
   const status = enabled ? 1 : 0;
-  db.prepare(
-    `
-    INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
-    VALUES (?, 'Inconnu', ?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET tracking_enabled = ?
-  `,
-  ).run(userId, Date.now(), status, status);
+  stmts.setTrackingStatus.run(userId, Date.now(), status, status);
 }
 
 function getUserStats(userId) {
-  const count = db
-    .prepare("SELECT COUNT(*) as count FROM logs WHERE user_id = ?")
-    .get(userId);
-  const user = db
-    .prepare(
-      "SELECT last_active_timestamp, tracking_enabled FROM users WHERE user_id = ?",
-    )
-    .get(userId);
+  const count = stmts.getUserLogCount.get(userId);
+  const user = stmts.getUserInfo.get(userId);
   return {
     count: count ? count.count : 0,
     lastActive: user ? user.last_active_timestamp : null,
@@ -152,27 +264,8 @@ function getUserStats(userId) {
  * (message=2, file=1, reaction=1)
  */
 function getUserWeightedScore(userId) {
-  const scoreResult = db
-    .prepare(
-      `
-    SELECT 
-      SUM(CASE 
-        WHEN l.type = 'message' THEN 2
-        WHEN l.type = 'file' THEN 1
-        WHEN l.type = 'reaction' THEN 1
-        ELSE 1
-      END) as score
-    FROM logs l
-    WHERE l.user_id = ?
-  `,
-    )
-    .get(userId);
-
-  const user = db
-    .prepare(
-      "SELECT last_active_timestamp, tracking_enabled FROM users WHERE user_id = ?",
-    )
-    .get(userId);
+  const scoreResult = stmts.getUserWeightedScore.get(userId);
+  const user = stmts.getUserInfo.get(userId);
 
   return {
     score: scoreResult && scoreResult.score ? scoreResult.score : 0,
@@ -181,72 +274,27 @@ function getUserWeightedScore(userId) {
   };
 }
 
-function getTopUsers(limit = 10) {
-  return db
-    .prepare(
-      `
-    SELECT u.username, u.user_id, COUNT(l.id) as score
-    FROM users u JOIN logs l ON u.user_id = l.user_id
-    WHERE u.tracking_enabled = 1
-    GROUP BY u.user_id ORDER BY score DESC LIMIT ?
-  `,
-    )
-    .all(limit);
-}
-
 function getInactiveUsersList(days) {
   const thresholdDate = Date.now() - days * 24 * 60 * 60 * 1000;
-  return db
-    .prepare(
-      `SELECT user_id, username, last_active_timestamp FROM users WHERE tracking_enabled = 1 AND last_active_timestamp < ? ORDER BY last_active_timestamp ASC`,
-    )
-    .all(thresholdDate);
+  return stmts.getInactiveUsersList.all(thresholdDate);
 }
 
 function getInactiveUsers(daysThreshold) {
   const thresholdDate = Date.now() - daysThreshold * 24 * 60 * 60 * 1000;
-  return db
-    .prepare(
-      `SELECT user_id, last_active_timestamp FROM users WHERE tracking_enabled = 1 AND last_active_timestamp < ?`,
-    )
-    .all(thresholdDate);
-}
-
-function getTopUserByPeriod(startTs, endTs) {
-  return db
-    .prepare(
-      `
-    SELECT u.user_id, COUNT(l.id) as score FROM logs l JOIN users u ON l.user_id = u.user_id
-    WHERE l.timestamp >= ? AND l.timestamp <= ? AND u.tracking_enabled = 1
-    GROUP BY u.user_id ORDER BY score DESC LIMIT 1
-  `,
-    )
-    .get(startTs, endTs);
+  return stmts.getInactiveUsers.all(thresholdDate);
 }
 
 function pruneLogs(daysRetention) {
   const limitTimestamp = Date.now() - daysRetention * 24 * 60 * 60 * 1000;
-  return db.prepare("DELETE FROM logs WHERE timestamp < ?").run(limitTimestamp)
-    .changes;
+  return stmts.pruneLogs.run(limitTimestamp).changes;
 }
 
 /**
  * Supprime toutes les données d'un utilisateur (RGPD + départ serveur).
  */
 function removeUserData(userId) {
-  const deleteLogs = db.prepare("DELETE FROM logs WHERE user_id = ?");
-  const deleteUser = db.prepare("DELETE FROM users WHERE user_id = ?");
-  const deleteBirthday = db.prepare("DELETE FROM birthdays WHERE user_id = ?");
-
-  const transaction = db.transaction(() => {
-    const logsResult = deleteLogs.run(userId);
-    const userResult = deleteUser.run(userId);
-    deleteBirthday.run(userId);
-    return { logs: logsResult.changes, user: userResult.changes };
-  });
-
   try {
-    const result = transaction();
+    const result = removeUserTransaction(userId);
     console.log(
       `[GDPR] Suppression user ${userId} : ${result.user} user, ${result.logs} logs.`,
     );
@@ -267,9 +315,7 @@ function createBackup(destinationPath) {
 }
 
 function getAllTrackedUserIds() {
-  const rows = db
-    .prepare("SELECT user_id FROM users UNION SELECT user_id FROM birthdays")
-    .all();
+  const rows = stmts.getAllTrackedUserIds.all();
   return rows.map((row) => row.user_id);
 }
 
@@ -285,16 +331,7 @@ function getAllTrackedUserIds() {
  * @param {number} month  - 1-12
  */
 function setBirthday(userId, username, day, month) {
-  db.prepare(
-    `
-    INSERT INTO birthdays (user_id, username, day, month)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET
-      username = excluded.username,
-      day      = excluded.day,
-      month    = excluded.month
-  `,
-  ).run(userId, username, day, month);
+  stmts.setBirthday.run(userId, username, day, month);
 }
 
 /**
@@ -304,18 +341,7 @@ function setBirthday(userId, username, day, month) {
  * @returns {number} Nombre de lignes supprimées (0 ou 1)
  */
 function deleteBirthday(userId) {
-  return db.prepare("DELETE FROM birthdays WHERE user_id = ?").run(userId)
-    .changes;
-}
-
-/**
- * Récupère l'anniversaire d'un utilisateur.
- *
- * @param {string} userId
- * @returns {{ user_id, username, day, month } | undefined}
- */
-function getBirthday(userId) {
-  return db.prepare("SELECT * FROM birthdays WHERE user_id = ?").get(userId);
+  return stmts.deleteBirthday.run(userId).changes;
 }
 
 /**
@@ -324,15 +350,7 @@ function getBirthday(userId) {
  * @returns {Array<{ user_id, username, day, month }>}
  */
 function getAllBirthdays() {
-  return db
-    .prepare(
-      `
-    SELECT user_id, username, day, month
-    FROM birthdays
-    ORDER BY month ASC, day ASC
-  `,
-    )
-    .all();
+  return stmts.getAllBirthdays.all();
 }
 
 /**
@@ -343,15 +361,7 @@ function getAllBirthdays() {
  * @returns {Array<{ user_id, username }>}
  */
 function getTodayBirthdays(day, month) {
-  return db
-    .prepare(
-      `
-    SELECT user_id, username
-    FROM birthdays
-    WHERE day = ? AND month = ?
-  `,
-    )
-    .all(day, month);
+  return stmts.getTodayBirthdays.all(day, month);
 }
 
 // ========== MEMBRE DU MOIS ==========
@@ -361,72 +371,35 @@ function getTodayBirthdays(day, month) {
  */
 function saveMonthWinner(userId, username, month, year, score) {
   const timestamp = Date.now();
-  return db
-    .prepare(
-      `
-    INSERT INTO member_of_month_history (user_id, username, month, year, score, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `,
-    )
-    .run(userId, username, month, year, score, timestamp);
+  return stmts.saveMonthWinner.run(
+    userId,
+    username,
+    month,
+    year,
+    score,
+    timestamp,
+  );
 }
 
 /**
  * Récupère les N derniers gagnants (pour calcul du malus)
  */
 function getRecentWinners(months) {
-  return db
-    .prepare(
-      `
-    SELECT user_id, month, year, score
-    FROM member_of_month_history
-    ORDER BY year DESC, month DESC
-    LIMIT ?
-  `,
-    )
-    .all(months);
+  return stmts.getRecentWinners.all(months);
 }
 
 /**
  * Récupère tout l'historique (pour la commande)
  */
 function getAllWinnersHistory() {
-  return db
-    .prepare(
-      `
-    SELECT user_id, username, month, year, score, timestamp
-    FROM member_of_month_history
-    ORDER BY year DESC, month DESC
-  `,
-    )
-    .all();
+  return stmts.getAllWinnersHistory.all();
 }
 
 /**
  * Calcule le top N avec pondération (message=2, file=1, reaction=1)
  */
 function getTopUsersWithWeights(startTs, endTs, limit = 10) {
-  return db
-    .prepare(
-      `
-    SELECT 
-      u.user_id,
-      u.username,
-      SUM(CASE 
-        WHEN l.type = 'message' THEN 2
-        WHEN l.type = 'file' THEN 1
-        WHEN l.type = 'reaction' THEN 1
-        ELSE 1
-      END) as score
-    FROM logs l
-    JOIN users u ON l.user_id = u.user_id
-    WHERE l.timestamp >= ? AND l.timestamp <= ? AND u.tracking_enabled = 1
-    GROUP BY u.user_id
-    ORDER BY score DESC
-    LIMIT ?
-  `,
-    )
-    .all(startTs, endTs, limit);
+  return stmts.getTopUsersWithWeights.all(startTs, endTs, limit);
 }
 
 /**
@@ -483,34 +456,12 @@ function calculateWinnerWithPenalty(startTs, endTs, currentMonth, currentYear) {
 
 function resetUserInactivity(userId, username) {
   const now = Date.now();
-  db.prepare(
-    `
-    INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
-    VALUES (?, ?, ?, 1)
-    ON CONFLICT(user_id) DO UPDATE SET
-      last_active_timestamp = excluded.last_active_timestamp,
-      username = excluded.username
-  `,
-  ).run(userId, username || "Inconnu", now);
+  stmts.upsertUserActivity.run(userId, username || "Inconnu", now);
 }
 
 function getUserActivityDetails(userId, reactionLimit = 5) {
-  const user = db
-    .prepare(
-      "SELECT last_active_timestamp, tracking_enabled FROM users WHERE user_id = ?",
-    )
-    .get(userId);
-
-  const byTypeRows = db
-    .prepare(
-      `
-      SELECT type, MAX(timestamp) as last_ts
-      FROM logs
-      WHERE user_id = ?
-      GROUP BY type
-    `,
-    )
-    .all(userId);
+  const user = stmts.getUserInfo.get(userId);
+  const byTypeRows = stmts.getUserLastByType.all(userId);
 
   const lastByType = {
     message: null,
@@ -524,16 +475,7 @@ function getUserActivityDetails(userId, reactionLimit = 5) {
     }
   }
 
-  const recentReactions = db
-    .prepare(
-      `
-      SELECT timestamp
-      FROM logs
-      WHERE user_id = ? AND type = 'reaction'
-      ORDER BY timestamp DESC
-      LIMIT ?
-    `,
-    )
+  const recentReactions = stmts.getUserRecentReactions
     .all(userId, reactionLimit)
     .map((r) => r.timestamp);
 
@@ -560,17 +502,14 @@ module.exports = {
   setTrackingStatus,
   getUserStats,
   getUserWeightedScore,
-  getTopUsers,
   getInactiveUsers,
   getInactiveUsersList,
-  getTopUserByPeriod,
   pruneLogs,
   removeUserData,
   createBackup,
   getAllTrackedUserIds,
   setBirthday,
   deleteBirthday,
-  getBirthday,
   getAllBirthdays,
   getTodayBirthdays,
   saveMonthWinner,
