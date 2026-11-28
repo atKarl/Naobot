@@ -6,7 +6,14 @@ import {
   AttachmentBuilder,
 } from "discord.js";
 import type { ChatInputCommandInteraction, Collection, GuildMember } from "discord.js";
-import { getInactiveUsersList } from "../../database.ts";
+import { getAllUsersTracking } from "../../database.ts";
+import type { UserTrackingRow } from "../../types.ts";
+
+interface InactiveEntry {
+  member: GuildMember;
+  timestamp: number;
+  neverActive: boolean;
+}
 
 export const data = new SlashCommandBuilder()
   .setName("inactifs")
@@ -38,14 +45,6 @@ export async function execute(
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const dbList = getInactiveUsersList(days);
-
-  if (dbList.length === 0) {
-    return interaction.editReply({
-      content: `✅ Aucune inactivité détectée depuis ${days} jours selon la base de données.`,
-    });
-  }
-
   let currentMembers: Collection<string, GuildMember>;
   try {
     currentMembers = await interaction.guild.members.fetch();
@@ -56,43 +55,84 @@ export async function execute(
     );
   }
 
-  const verifiedList = dbList.filter((u) => {
-    const member = currentMembers.get(u.user_id);
-    return member !== undefined && !member.user.bot;
-  });
+  const usersMap = new Map<string, UserTrackingRow>();
+  for (const row of getAllUsersTracking()) {
+    usersMap.set(row.user_id, row);
+  }
 
-  if (verifiedList.length === 0) {
+  const thresholdDate = Date.now() - days * 24 * 60 * 60 * 1000;
+  const inactiveList: InactiveEntry[] = [];
+  let optOutCount = 0;
+
+  for (const member of currentMembers.values()) {
+    if (member.user.bot) continue;
+
+    const dbUser = usersMap.get(member.id);
+    if (dbUser && dbUser.tracking_enabled === 0) {
+      optOutCount++;
+      continue;
+    }
+
+    if (dbUser && dbUser.last_active_timestamp !== null) {
+      if (dbUser.last_active_timestamp < thresholdDate) {
+        inactiveList.push({
+          member,
+          timestamp: dbUser.last_active_timestamp,
+          neverActive: false,
+        });
+      }
+    } else if (
+      member.joinedTimestamp !== null &&
+      member.joinedTimestamp < thresholdDate
+    ) {
+      inactiveList.push({
+        member,
+        timestamp: member.joinedTimestamp,
+        neverActive: true,
+      });
+    }
+  }
+
+  inactiveList.sort((a, b) => a.timestamp - b.timestamp);
+
+  const dayPlural = days > 1 ? "s" : "";
+
+  if (inactiveList.length === 0) {
     return interaction.editReply({
-      content:
-        "✅ Après vérification, tous les membres inactifs de la base de données ont déjà quitté le serveur.",
+      content: `✅ Aucun membre inactif depuis plus de **${days} jour${dayPlural}** sur le serveur.`,
     });
   }
 
+  const neverActiveCount = inactiveList.filter((e) => e.neverActive).length;
+  const count = inactiveList.length;
+
   let fileContent = `=== RAPPORT D'INACTIVITÉ ===\n`;
   fileContent += `Serveur : ${interaction.guild.name}\n`;
-  fileContent += `Date du rapport : ${new Date().toLocaleString("fr-FR")}\n`;
-  fileContent += `Critère : Aucune activité depuis ${days} jours\n`;
-  fileContent += `Membres trouvés (Présents sur le serveur) : ${verifiedList.length}\n`;
+  fileContent += `Date du rapport : ${new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}\n`;
+  fileContent += `Critère : Aucune activité depuis ${days} jour${dayPlural}\n`;
+  fileContent += `Membres trouvés (Présents sur le serveur) : ${count}${neverActiveCount > 0 ? ` (dont ${neverActiveCount} sans activité enregistrée)` : ""}\n`;
+  fileContent += `Note : Les membres ayant désactivé le suivi (/privacy) sont exclus${optOutCount > 0 ? ` (${optOutCount} membre${optOutCount > 1 ? "s" : ""})` : ""}.\n`;
   fileContent += `----------------------------------------------------\n\n`;
 
-  verifiedList.forEach((u) => {
-    const dateStr = new Date(u.last_active_timestamp).toLocaleDateString(
-      "fr-FR",
-    );
-    const member = currentMembers.get(u.user_id);
+  for (const entry of inactiveList) {
+    const dateStr = new Date(entry.timestamp).toLocaleDateString("fr-FR", {
+      timeZone: "Europe/Paris",
+    });
 
-    if (!member) return;
-
-    const globalUsername = member.user.username;
-    const serverName = member.displayName;
+    const globalUsername = entry.member.user.username;
+    const serverName = entry.member.displayName;
 
     const formattedName =
       serverName.toLowerCase() !== globalUsername.toLowerCase()
         ? `${serverName} (@${globalUsername})`
         : globalUsername;
 
-    fileContent += `[Dernière vue : ${dateStr}] ${formattedName} (ID: ${u.user_id})\n`;
-  });
+    const label = entry.neverActive
+      ? `[Jamais actif - Arrivé le : ${dateStr}]`
+      : `[Dernière vue : ${dateStr}]`;
+
+    fileContent += `${label} ${formattedName} (ID: ${entry.member.id})\n`;
+  }
 
   fileContent += `\n----------------------------------------------------\n`;
   fileContent += `Fin du rapport.`;
@@ -102,9 +142,7 @@ export async function execute(
     name: `inactifs_${days}jours.txt`,
   });
 
-  const count = verifiedList.length;
   const plural = count > 1 ? "s" : "";
-  const dayPlural = days > 1 ? "s" : "";
 
   await interaction.editReply({
     content: `✅ **Rapport généré !**\n**${count}** membre${plural} inactif${plural} depuis plus de **${days} jour${dayPlural}** sur le serveur.`,

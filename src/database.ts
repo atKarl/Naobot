@@ -4,7 +4,7 @@ import type {
   ActivityLogType,
   BatchMessageEntry,
   BirthdayEntry,
-  InactiveUserListRow,
+  UserTrackingRow,
   InactiveUserRow,
   RecentWinnerEntry,
   RemoveUserResult,
@@ -52,11 +52,11 @@ interface DbStatements {
   upsertUserActivity: Database.Statement<[string, string, number]>;
   insertLog: Database.Statement<[string, ActivityLogType, number]>;
   upsertUserBatch: Database.Statement<[string, string, number]>;
-  setTrackingStatus: Database.Statement<[string, number, number, number]>;
+  setTrackingStatus: Database.Statement<[string, number, number]>;
   getUserLogCount: Database.Statement<[string], CountRow>;
   getUserInfo: Database.Statement<[string], UserInfoRow>;
   getUserWeightedScore: Database.Statement<[string], ScoreRow>;
-  getInactiveUsersList: Database.Statement<[number], InactiveUserListRow>;
+  getAllUsersTracking: Database.Statement<[], UserTrackingRow>;
   getInactiveUsers: Database.Statement<[number], InactiveUserRow>;
   pruneLogs: Database.Statement<[number]>;
   deleteUserLogs: Database.Statement<[string]>;
@@ -132,10 +132,15 @@ function prepareStatements(): void {
         last_active_timestamp = MAX(last_active_timestamp, excluded.last_active_timestamp),
         username = excluded.username
     `),
-    setTrackingStatus: db.prepare<[string, number, number, number]>(`
+    setTrackingStatus: db.prepare<[string, number, number]>(`
       INSERT INTO users (user_id, username, last_active_timestamp, tracking_enabled)
       VALUES (?, 'Inconnu', ?, ?)
-      ON CONFLICT(user_id) DO UPDATE SET tracking_enabled = ?
+      ON CONFLICT(user_id) DO UPDATE SET
+        tracking_enabled = excluded.tracking_enabled,
+        last_active_timestamp = CASE
+          WHEN excluded.tracking_enabled = 1 THEN excluded.last_active_timestamp
+          ELSE last_active_timestamp
+        END
     `),
     getUserLogCount: db.prepare<[string], CountRow>(
       "SELECT COUNT(*) as count FROM logs WHERE user_id = ?",
@@ -154,8 +159,8 @@ function prepareStatements(): void {
       FROM logs l
       WHERE l.user_id = ?
     `),
-    getInactiveUsersList: db.prepare<[number], InactiveUserListRow>(
-      "SELECT user_id, username, last_active_timestamp FROM users WHERE tracking_enabled = 1 AND last_active_timestamp < ? ORDER BY last_active_timestamp ASC",
+    getAllUsersTracking: db.prepare<[], UserTrackingRow>(
+      "SELECT user_id, last_active_timestamp, tracking_enabled FROM users",
     ),
     getInactiveUsers: db.prepare<[number], InactiveUserRow>(
       "SELECT user_id, last_active_timestamp FROM users WHERE tracking_enabled = 1 AND last_active_timestamp < ?",
@@ -368,7 +373,7 @@ function updateBatch(messages: BatchMessageEntry[]): void {
 
 function setTrackingStatus(userId: string, enabled: boolean): void {
   const status = enabled ? 1 : 0;
-  getState().stmts.setTrackingStatus.run(userId, Date.now(), status, status);
+  getState().stmts.setTrackingStatus.run(userId, Date.now(), status);
 }
 
 function getUserStats(userId: string): UserStats {
@@ -398,9 +403,8 @@ function getUserWeightedScore(userId: string): UserWeightedScore {
   };
 }
 
-function getInactiveUsersList(days: number): InactiveUserListRow[] {
-  const thresholdDate = Date.now() - days * 24 * 60 * 60 * 1000;
-  return getState().stmts.getInactiveUsersList.all(thresholdDate);
+function getAllUsersTracking(): UserTrackingRow[] {
+  return getState().stmts.getAllUsersTracking.all();
 }
 
 function getInactiveUsers(daysThreshold: number): InactiveUserRow[] {
@@ -608,7 +612,7 @@ export {
   getUserStats,
   getUserWeightedScore,
   getInactiveUsers,
-  getInactiveUsersList,
+  getAllUsersTracking,
   pruneLogs,
   removeUserData,
   createBackup,

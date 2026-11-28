@@ -91,10 +91,10 @@ export interface InactiveUserRow {
   last_active_timestamp: number;
 }
 
-export interface InactiveUserListRow {
+export interface UserTrackingRow {
   user_id: string;
-  username: string;
-  last_active_timestamp: number;
+  last_active_timestamp: number | null;
+  tracking_enabled: number;
 }
 
 export interface UserActivityDetails {
