@@ -102,8 +102,12 @@ export async function execute(
     name: `inactifs_${days}jours.txt`,
   });
 
+  const count = verifiedList.length;
+  const plural = count > 1 ? "s" : "";
+  const dayPlural = days > 1 ? "s" : "";
+
   await interaction.editReply({
-    content: `✅ **Rapport généré avec succès !**\nVoici la liste des **${verifiedList.length}** membres réellement présents sur le serveur et inactifs.`,
+    content: `✅ **Rapport généré !**\n**${count}** membre${plural} inactif${plural} depuis plus de **${days} jour${dayPlural}** sur le serveur.`,
     files: [attachment],
   });
 }
